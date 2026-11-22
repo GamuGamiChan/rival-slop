@@ -2,7 +2,7 @@
 
 **Multiplayer 3D First-Person Math Arena Shooter** สำหรับการแข่งขันทบทวนวิชา **คณิตศาสตร์พื้นฐาน 2 (ค31102) ชั้น ม.4 เทอม 2 — บทที่ 1: หลักการนับเบื้องต้น**
 
-ตอบโจทย์คณิตศาสตร์ให้ไวเพื่อสุ่มปลดล็อกอาวุธไซไฟ 4 ชนิด แล้วต่อสู้ในสนามนีออน 3D แบบทีม **Blue vs Red** ร่วมกับเพื่อนแบบ Real-time (2–8 Players) ภายในเวลาแข่งขัน **90 วินาที (01:30)**
+ตอบโจทย์คณิตศาสตร์ให้ไวเพื่อสุ่มปลดล็อกอาวุธไซไฟ **8 ชนิด** และใช้สกิลสไตล์ Tactical FPS ของ **4 Agents** ต่อสู้ในสนามนีออน 3D แบบทีม **Blue vs Red** ร่วมกับเพื่อนแบบ Real-time (2–8 Players) ภายในเวลาแข่งขัน **90 วินาที (01:30)**
 
 ---
 
@@ -45,7 +45,7 @@
   - Lobby แยกทีม Blue vs Red พร้อม **Agent Selector**, Switch Team, Ready Status และ Host Start
   - Synchronized 3-2-1 Countdown และ 90-second Real-time Timer
   - รองรับ Auto-Reconnect (คืนค่าคะแนนและอาวุธเดิมเมื่อรีเฟรชหน้า) และการจัดการ Disconnect อย่างปลอดภัย
-  - รองรับ 2 โหมด Backend: **Authoritative WebSocket Server (`server/index.ts`)** และ **Supabase Realtime + PostgreSQL RPCs (`supabase/schema.sql`)**
+  - รองรับ 3 โหมดการเชื่อมต่ออัตโนมัติ: **Zero-Config WebRTC P2P (`PeerJS`, ทำงานได้ทันทีบน GitHub Pages & Vercel)**, **Authoritative WebSocket/HTTP Server (`server/index.ts`)**, และ **Supabase Realtime + PostgreSQL RPCs (`supabase/schema.sql`)**
 
 ---
 
@@ -72,18 +72,22 @@
 
 ```text
 .
+├── .github/workflows/
+│   └── deploy-pages.yml        # GitHub Actions CI & auto-deploy to GitHub Pages
 ├── server/
-│   ├── index.ts                # Node.js HTTP + WebSocket authoritative game server (20Hz tick)
-│   └── roomManager.ts          # Room lifecycle, 90s timer, quiz validator, 3D raycast hit detection
+│   ├── index.ts                # Node.js HTTP + WebSocket authoritative game server (20Hz tick + HTTP fallback)
+│   └── roomManager.ts          # Re-export of shared RoomManager
 ├── shared/
+│   ├── agents.ts               # 4 Valorant-style Tactical Agents & 12 skill specs
 │   ├── arena.ts                # Shared 3D arena geometry, spawns, collision & ray-hitbox math
 │   ├── questions.ts            # 48 verified Grade 10 Term 2 combinatorics questions
-│   ├── types.ts                # Shared domain types, scoring constants, WS protocol
-│   └── weapons.ts              # 4 sci-fi weapon specifications & difficulty-weighted randomizer
+│   ├── roomManager.ts          # Universal Host/Server authoritative simulation (Browser + Node)
+│   ├── types.ts                # Shared domain types, scoring constants, WS/P2P protocol
+│   └── weapons.ts              # 8 sci-fi weapon specifications & difficulty-weighted randomizer
 ├── src/
 │   ├── components/             # 8+ Esports UI screens (Menu, Room, Lobby, HUD, MathModal, Reveal, Scoreboard, Pause, Result)
-│   ├── game/                   # Three.js / R3F 3D Arena, FPS PlayerController, 4 Viewmodels, Avatars, Tracers, Web Audio SFX
-│   ├── multiplayer/            # Unified client facade (WebSocket adapter + Supabase Realtime adapter)
+│   ├── game/                   # Three.js / R3F 3D Arena, FPS PlayerController, 8 Viewmodels, World Skill Effects, Web Audio SFX
+│   ├── multiplayer/            # Unified client facade (WebRTC P2P + WebSocket/HTTP + Supabase Realtime)
 │   └── store/                  # Zustand state store + 60fps transform cache + session reconnect
 ├── supabase/
 │   └── schema.sql              # PostgreSQL tables, RLS policies, and SECURITY DEFINER RPCs
@@ -146,21 +150,23 @@ npm run dev:full
 
 ## วิธี Deploy ขึ้นอินเทอร์เน็ตเพื่อให้เพื่อนเล่นด้วยกันได้จริง
 
-### แนวทางที่แนะนำ (ความแม่นยำสูงสุด): Vercel (Frontend) + Render (Authoritative WS Server)
+### วิธีที่ 1 (ง่ายสุด — ฟรี 100% ไม่ต้องตั้งค่า Backend แยก): GitHub Pages หรือ Vercel 1 คลิก!
+ตัวเกมมีระบบ **Auto Zero-Config WebRTC P2P (`PeerJS` + Host-Authoritative `RoomManager`)** ในตัว ทำให้ทำงานได้ทันทีบน Static Host โดยไม่ต้องตั้ง Environment Variables หรือเปิด Render/Supabase แยก:
 
-1. **Deploy Game Server บน Render (ฟรี)**
-   - ไปที่ [render.com](https://render.com) → **New → Blueprint** → เชื่อมต่อ Repository `KhunSiwa/-rival`
-   - Render จะอ่านไฟล์ [`render.yaml`](render.yaml) และสร้าง Web Service ให้อัตโนมัติ (ตรวจสอบได้ผ่าน `GET /health`)
-   - คัดลอก URL ของเซิร์ฟเวอร์ เช่น `https://math-rivals-3d-server.onrender.com`
-2. **Deploy Frontend บน Vercel (ฟรี)**
-   - ไปที่ [vercel.com](https://vercel.com) → **Add New Project** → Import `KhunSiwa/-rival`
-   - ตั้งค่า Environment Variables:
-     - `VITE_MULTIPLAYER_MODE` = `ws`
-     - `VITE_WS_URL` = `wss://math-rivals-3d-server.onrender.com/ws`
-   - กด **Deploy** แล้วแชร์ลิงก์ Vercel ให้เพื่อนเข้าเล่นพร้อมกันได้ทันที!
+- **GitHub Pages (Live อัตโนมัติผ่าน GitHub Actions):**
+  - เปิดเล่นได้ทันทีที่: `https://khunsiwa.github.io/-rival/`
+  - ทุกครั้งที่ push ขึ้น `main` ไฟล์ [`.github/workflows/deploy-pages.yml`](.github/workflows/deploy-pages.yml) จะรันเทสต์ Build และอัปเดตหน้าเว็บให้อัตโนมัติ
+- **Vercel (1-Click Import → Deploy):**
+  - เข้า [vercel.com](https://vercel.com) → **Add New Project** → Import `KhunSiwa/-rival` → กด **Deploy** ได้เลยทันทีโดยไม่ต้องใส่ Env Var ใดๆ!
 
-### แนวทางทางเลือก: Vercel (Frontend) + Supabase (Backend)
-- ทำตามขั้นตอน **วิธีตั้งค่า Supabase** ด้านบน แล้ว Import โปรเจกต์ขึ้น Vercel พร้อมตั้งค่า `VITE_MULTIPLAYER_MODE=supabase`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`
+### วิธีที่ 2 (Dedicated Server สำหรับห้องขนาดใหญ่): Vercel + Render
+1. **Deploy Game Server บน Render**: สร้าง **New → Blueprint** เชื่อมต่อ `KhunSiwa/-rival` (ใช้ไฟล์ [`render.yaml`](render.yaml)) → คัดลอก URL เช่น `https://math-rivals-3d-server.onrender.com`
+2. **เชื่อมกับ Vercel**: ตั้ง Environment Variables ใน Vercel:
+   - `VITE_MULTIPLAYER_MODE` = `ws`
+   - `VITE_WS_URL` = `wss://math-rivals-3d-server.onrender.com/ws`
+
+### วิธีที่ 3: Vercel + Supabase
+- ทำตามขั้นตอน **วิธีตั้งค่า Supabase** ด้านบน แล้วตั้ง `VITE_MULTIPLAYER_MODE=supabase`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` ใน Vercel
 
 ---
 

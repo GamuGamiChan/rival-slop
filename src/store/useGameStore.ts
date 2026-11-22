@@ -106,7 +106,7 @@ export interface ActiveTracer {
 export interface GameState {
   screen: ScreenMode
   connectionStatus: ConnectionStatus
-  transportMode: 'ws' | 'supabase'
+  transportMode: 'ws' | 'p2p' | 'supabase'
   playerName: string
   playerId: string | null
   sessionToken: string | null
@@ -143,7 +143,7 @@ export interface GameState {
   setScreen: (screen: ScreenMode) => void
   setPlayerName: (name: string) => void
   setConnectionStatus: (status: ConnectionStatus) => void
-  setTransportMode: (mode: 'ws' | 'supabase') => void
+  setTransportMode: (mode: 'ws' | 'p2p' | 'supabase') => void
   setClockOffset: (serverNow: number) => void
   setError: (msg: string | null) => void
   setStatusToast: (msg: string | null) => void

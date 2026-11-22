@@ -52,7 +52,11 @@ export function MainMenu() {
         <div className="flex items-center gap-3">
           <span className="hidden sm:inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold tracking-wider uppercase bg-slate-900/80 border border-slate-700/80 text-slate-300 hud-cut-sm">
             <span className="h-2 w-2 rounded-full bg-emerald-400" />
-            {transportMode === 'supabase' ? 'Supabase Realtime' : 'Authoritative WS'}
+            {transportMode === 'supabase'
+              ? 'Supabase Realtime'
+              : transportMode === 'p2p'
+                ? 'WebRTC P2P Online'
+                : 'Authoritative WS'}
           </span>
           <button
             id="btn-toggle-mute"

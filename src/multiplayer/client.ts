@@ -1,31 +1,46 @@
 import type { AgentId, Difficulty, ServerMessage, SkillSlot, Team, Vec3 } from '../../shared/types.ts'
 import { soundEngine } from '../game/sound.ts'
 import { loadSession, useGameStore } from '../store/useGameStore.ts'
+import { P2PAdapter } from './p2pAdapter.ts'
 import { SupabaseAdapter } from './supabaseAdapter.ts'
 import { WebSocketAdapter } from './wsAdapter.ts'
 
-function resolveTransportMode(): 'ws' | 'supabase' {
+function resolveInitialTransportMode(): 'ws' | 'p2p' | 'supabase' {
   const envMode = import.meta.env.VITE_MULTIPLAYER_MODE?.trim().toLowerCase()
   if (envMode === 'supabase' && SupabaseAdapter.isConfigured()) {
     return 'supabase'
+  }
+  if (envMode === 'p2p') {
+    return 'p2p'
+  }
+  // When deployed statically on GitHub Pages or Vercel without a dedicated WS server URL,
+  // default straight to zero-config WebRTC P2P so multiplayer works out of the box!
+  const hasExplicitWs = Boolean(import.meta.env.VITE_WS_URL?.trim())
+  if (typeof window !== 'undefined' && !hasExplicitWs) {
+    const host = window.location.hostname.toLowerCase()
+    if (host.endsWith('.github.io') || host.endsWith('.vercel.app') || host.endsWith('.netlify.app')) {
+      return 'p2p'
+    }
   }
   return 'ws'
 }
 
 class MultiplayerClient {
-  private readonly mode: 'ws' | 'supabase'
+  private mode: 'ws' | 'p2p' | 'supabase'
   private readonly ws = new WebSocketAdapter()
+  private readonly p2p = new P2PAdapter()
   private readonly sb = new SupabaseAdapter()
   private lastMoveSentAt = 0
 
   constructor() {
-    this.mode = resolveTransportMode()
+    this.mode = resolveInitialTransportMode()
     useGameStore.getState().setTransportMode(this.mode)
     this.ws.setMessageHandler((msg) => this.handleServerMessage(msg))
+    this.p2p.setMessageHandler((msg) => this.handleServerMessage(msg))
     this.sb.setMessageHandler((msg) => this.handleServerMessage(msg))
   }
 
-  getMode(): 'ws' | 'supabase' {
+  getMode(): 'ws' | 'p2p' | 'supabase' {
     return this.mode
   }
 
@@ -96,9 +111,20 @@ class MultiplayerClient {
     try {
       if (this.mode === 'supabase') {
         await this.sb.createRoom(clean)
-      } else {
+        return
+      }
+      if (this.mode === 'p2p') {
+        await this.p2p.createRoom(clean)
+        return
+      }
+      // Try dedicated WebSocket/HTTP server first; if absent (static host), fall back to WebRTC P2P!
+      try {
         await this.ws.ensureConnected()
         this.ws.sendRaw({ type: 'CREATE_ROOM', playerName: clean })
+      } catch {
+        this.mode = 'p2p'
+        useGameStore.getState().setTransportMode('p2p')
+        await this.p2p.createRoom(clean)
       }
     } catch (err) {
       useGameStore.getState().setError(err instanceof Error ? err.message : 'เชื่อมต่อไม่สำเร็จ')
@@ -117,9 +143,19 @@ class MultiplayerClient {
     try {
       if (this.mode === 'supabase') {
         await this.sb.joinRoom(cleanCode, cleanName)
-      } else {
+        return
+      }
+      if (this.mode === 'p2p') {
+        await this.p2p.joinRoom(cleanCode, cleanName)
+        return
+      }
+      try {
         await this.ws.ensureConnected()
         this.ws.sendRaw({ type: 'JOIN_ROOM', roomCode: cleanCode, playerName: cleanName })
+      } catch {
+        this.mode = 'p2p'
+        useGameStore.getState().setTransportMode('p2p')
+        await this.p2p.joinRoom(cleanCode, cleanName)
       }
     } catch (err) {
       useGameStore.getState().setError(err instanceof Error ? err.message : 'เข้าร่วมห้องไม่สำเร็จ')
@@ -127,9 +163,17 @@ class MultiplayerClient {
   }
 
   async tryReconnectSavedSession(): Promise<boolean> {
-    if (this.mode !== 'ws') return false
     const saved = loadSession()
     if (!saved) return false
+    if (this.mode === 'p2p') {
+      try {
+        await this.p2p.reconnectRoom(saved.roomCode, saved.playerId, saved.sessionToken)
+        return true
+      } catch {
+        return false
+      }
+    }
+    if (this.mode !== 'ws') return false
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         await this.ws.ensureConnected()
@@ -146,23 +190,36 @@ class MultiplayerClient {
         }
       }
     }
-    return false
+    try {
+      this.mode = 'p2p'
+      useGameStore.getState().setTransportMode('p2p')
+      await this.p2p.reconnectRoom(saved.roomCode, saved.playerId, saved.sessionToken)
+      return true
+    } catch {
+      return false
+    }
   }
 
   setReady(ready: boolean): void {
-    if (this.mode === 'ws') {
+    if (this.mode === 'p2p') {
+      this.p2p.sendMessage({ type: 'SET_READY', ready })
+    } else if (this.mode === 'ws') {
       this.ws.sendRaw({ type: 'SET_READY', ready })
     }
   }
 
   switchTeam(team: Team): void {
-    if (this.mode === 'ws') {
+    if (this.mode === 'p2p') {
+      this.p2p.sendMessage({ type: 'SWITCH_TEAM', team })
+    } else if (this.mode === 'ws') {
       this.ws.sendRaw({ type: 'SWITCH_TEAM', team })
     }
   }
 
   selectAgent(agent: AgentId): void {
-    if (this.mode === 'ws') {
+    if (this.mode === 'p2p') {
+      this.p2p.sendMessage({ type: 'SELECT_AGENT', agent })
+    } else if (this.mode === 'ws') {
       this.ws.sendRaw({ type: 'SELECT_AGENT', agent })
     }
   }
@@ -170,19 +227,26 @@ class MultiplayerClient {
   startMatch(): void {
     if (this.mode === 'supabase') {
       void this.sb.startMatch()
+    } else if (this.mode === 'p2p') {
+      this.p2p.sendMessage({ type: 'START_MATCH' })
     } else {
       this.ws.sendRaw({ type: 'START_MATCH' })
     }
   }
 
   returnToLobby(): void {
-    if (this.mode === 'ws') {
+    if (this.mode === 'p2p') {
+      this.p2p.sendMessage({ type: 'RETURN_TO_LOBBY' })
+    } else if (this.mode === 'ws') {
       this.ws.sendRaw({ type: 'RETURN_TO_LOBBY' })
     }
   }
 
   leaveRoom(): void {
-    if (this.mode === 'ws') {
+    if (this.mode === 'p2p') {
+      this.p2p.sendMessage({ type: 'LEAVE_ROOM' })
+      this.p2p.disconnect()
+    } else if (this.mode === 'ws') {
       this.ws.sendRaw({ type: 'LEAVE_ROOM' })
       this.ws.disconnect()
     } else {
@@ -197,6 +261,8 @@ class MultiplayerClient {
     this.lastMoveSentAt = now
     if (this.mode === 'supabase') {
       this.sb.sendMove(position, yaw, pitch)
+    } else if (this.mode === 'p2p') {
+      this.p2p.sendMessage({ type: 'PLAYER_MOVE', position, yaw, pitch })
     } else {
       this.ws.sendRaw({ type: 'PLAYER_MOVE', position, yaw, pitch })
     }
@@ -205,6 +271,8 @@ class MultiplayerClient {
   requestQuestion(preferredDifficulty?: Difficulty): void {
     if (this.mode === 'supabase') {
       this.sb.requestQuestion(preferredDifficulty)
+    } else if (this.mode === 'p2p') {
+      this.p2p.sendMessage({ type: 'REQUEST_QUESTION', preferredDifficulty })
     } else {
       this.ws.sendRaw({ type: 'REQUEST_QUESTION', preferredDifficulty })
     }
@@ -213,6 +281,8 @@ class MultiplayerClient {
   submitAnswer(questionId: string, selectedIndex: number): void {
     if (this.mode === 'supabase') {
       void this.sb.submitAnswer(questionId, selectedIndex)
+    } else if (this.mode === 'p2p') {
+      this.p2p.sendMessage({ type: 'SUBMIT_ANSWER', questionId, selectedIndex })
     } else {
       this.ws.sendRaw({ type: 'SUBMIT_ANSWER', questionId, selectedIndex })
     }
@@ -221,19 +291,25 @@ class MultiplayerClient {
   shoot(origin: Vec3, direction: Vec3): void {
     if (this.mode === 'supabase') {
       void this.sb.shoot(origin, direction)
+    } else if (this.mode === 'p2p') {
+      this.p2p.sendMessage({ type: 'SHOOT', origin, direction })
     } else {
       this.ws.sendRaw({ type: 'SHOOT', origin, direction })
     }
   }
 
   useSkill(slot: SkillSlot, origin: Vec3, direction: Vec3): void {
-    if (this.mode === 'ws') {
+    if (this.mode === 'p2p') {
+      this.p2p.sendMessage({ type: 'USE_SKILL', slot, origin, direction })
+    } else if (this.mode === 'ws') {
       this.ws.sendRaw({ type: 'USE_SKILL', slot, origin, direction })
     }
   }
 
   reload(): void {
-    if (this.mode === 'ws') {
+    if (this.mode === 'p2p') {
+      this.p2p.sendMessage({ type: 'RELOAD' })
+    } else if (this.mode === 'ws') {
       this.ws.sendRaw({ type: 'RELOAD' })
     }
   }
