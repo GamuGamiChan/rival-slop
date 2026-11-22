@@ -92,7 +92,7 @@ export class PracticeAdapter {
     this.onMessage = handler
   }
 
-  start(playerName: string): void {
+  start(playerName: string, freePlay = false): void {
     this.disconnect()
     const mgr = new RoomManager()
     const created = mgr.createRoom(playerName || 'Trainee')
@@ -111,17 +111,17 @@ export class PracticeAdapter {
     room.matchStartedAt = now
     room.matchEndsAt = now + 30 * 60 * 1000
     room.roundNumber = 1
-    room.roundState = 'COMBAT_ACTIVE'
-    room.roundPhaseEndsAt = now + 35_000
+    room.roundState = freePlay ? 'FREE_PLAY' : 'COMBAT_ACTIVE'
+    room.roundPhaseEndsAt = freePlay ? null : now + 35_000
     room.players.delete(dummy.playerId)
 
     const me = room.players.get(created.playerId)
     if (me) {
       me.position = { x: 0, y: 0, z: -15.5 }
       me.yaw = Math.PI
-      me.weapon = 'pistol'
-      me.ammo = WEAPONS.pistol.magSize
-      me.maxAmmo = WEAPONS.pistol.magSize
+      me.weapon = freePlay ? 'rifle' : 'pistol'
+      me.ammo = WEAPONS[me.weapon].magSize
+      me.maxAmmo = WEAPONS[me.weapon].magSize
     }
 
     this.manager = mgr
@@ -143,6 +143,25 @@ export class PracticeAdapter {
     })
 
     this.startTickLoop()
+  }
+
+  setFreePlayMode(enabled: boolean): void {
+    if (!this.manager || !this.roomCode) return
+    const room = this.manager.getRoom(this.roomCode)
+    if (!room) return
+    const now = Date.now()
+    if (enabled) {
+      room.roundState = 'FREE_PLAY'
+      room.roundPhaseEndsAt = null
+      room.activeRoundQuestionId = null
+      room.roundAnsweredPlayerIds.clear()
+    } else {
+      room.roundState = 'COMBAT_ACTIVE'
+      room.roundPhaseEndsAt = now + 35_000
+      room.activeRoundQuestionId = null
+      room.roundAnsweredPlayerIds.clear()
+    }
+    this.emitSnapshot()
   }
 
   sendMessage(msg: ClientMessage): void {
@@ -180,18 +199,13 @@ export class PracticeAdapter {
       }
 
       case 'SELECT_AGENT': {
-        const room = this.manager.getRoom(roomCode)
-        const me = room?.players.get(playerId)
-        if (me) {
-          me.agent = msg.agent
-          this.emitSnapshot()
-        }
+        const res = this.manager.selectAgent(roomCode, playerId, msg.agent)
+        if (res.ok) this.onMessage?.({ type: 'ROOM_STATE', room: res.snapshot })
         break
       }
 
       case 'START_FREE_PLAY': {
-        const res = this.manager.startFreePlay(roomCode, playerId)
-        if (res.ok) this.onMessage?.({ type: 'ROOM_STATE', room: res.snapshot })
+        this.setFreePlayMode(true)
         break
       }
 

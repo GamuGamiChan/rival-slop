@@ -13,7 +13,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { AGENTS } from '../../shared/agents.ts'
+import { AGENT_IDS, AGENTS } from '../../shared/agents.ts'
 import type { SkillSlot } from '../../shared/types.ts'
 import { WEAPON_IDS, WEAPONS } from '../../shared/weapons.ts'
 import { soundEngine } from '../game/sound.ts'
@@ -289,9 +289,27 @@ export function GameHUD() {
       {/* TOP LEFT — Room Info, Pointer Lock Status Badge & Live Kill Feed */}
       <div className="fixed top-4 left-4 space-y-1.5 max-w-xs">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[10px] font-display tracking-[0.2em] text-slate-300 uppercase px-2 py-0.5 bg-slate-950/80 border border-slate-700/80">
+          <span
+            id="hud-agent-badge"
+            data-agent={me.agent}
+            className="text-[10px] font-display tracking-[0.2em] text-slate-300 uppercase px-2 py-0.5 bg-slate-950/80 border border-slate-700/80"
+          >
             {practiceMode ? 'TRAINING RANGE' : `ROOM ${room.roomCode}`} • {agentSpec.name}
           </span>
+          {practiceMode && (
+            <button
+              id="btn-practice-toggle-free"
+              type="button"
+              onClick={() => multiplayerClient.setPracticeFreePlay(room.roundState !== 'FREE_PLAY')}
+              className={`pointer-events-auto text-[10px] font-display font-bold tracking-wider uppercase px-2 py-0.5 border transition cursor-pointer ${
+                room.roundState === 'FREE_PLAY'
+                  ? 'bg-emerald-500/25 border-emerald-400 text-emerald-200 hover:bg-emerald-500/35'
+                  : 'bg-amber-500/20 border-amber-400/70 text-amber-200 hover:bg-amber-500/30'
+              }`}
+            >
+              {room.roundState === 'FREE_PLAY' ? 'FREE PRACTICE • SWITCH TO MATH DRILL' : 'SWITCH TO FREE WEAPONS'}
+            </button>
+          )}
           <span
             id="hud-pointer-lock-status"
             data-mouse-look-active={String(pointerLocked)}
@@ -575,8 +593,41 @@ export function GameHUD() {
         </div>
       )}
 
-      {/* BOTTOM LEFT — HP, Personal Stats & Movement/Aim State Indicators */}
+      {/* BOTTOM LEFT — Per-Round In-Game Style Switcher, HP, Personal Stats & Movement/Aim State Indicators */}
       <div className="fixed bottom-4 left-4 flex flex-col items-start gap-1.5">
+        {/* Per-Round Style / Agent Switcher Dock (Available in EVERY Round & Practice Mode) */}
+        {room.phase === 'playing' && !pauseOpen && !mathModalOpen && (
+          <div
+            id="hud-style-switcher"
+            data-ui-interactive="true"
+            className="pointer-events-auto hud-panel hud-cut-sm border border-slate-700/80 px-2 py-1.5 flex items-center gap-1"
+          >
+            <span className="text-[9px] font-display font-bold tracking-wider text-amber-300 uppercase mr-1">
+              STYLE:
+            </span>
+            {AGENT_IDS.map((aid) => {
+              const a = AGENTS[aid]
+              const active = me.agent === aid
+              return (
+                <button
+                  key={aid}
+                  id={`btn-hud-style-${aid}`}
+                  type="button"
+                  onClick={() => multiplayerClient.selectAgent(aid)}
+                  className={`px-1.5 py-0.5 text-[9px] font-display font-bold uppercase border transition cursor-pointer ${
+                    active
+                      ? 'bg-slate-900 text-white'
+                      : 'bg-slate-950/80 border-slate-800 text-slate-400 hover:text-white'
+                  }`}
+                  style={active ? { borderColor: a.accentColor, color: a.accentColor } : undefined}
+                >
+                  {a.name}
+                </button>
+              )
+            })}
+          </div>
+        )}
+
         {/* Live Sprint & Ctrl Aim Mode Indicators */}
         <div className="flex items-center gap-1.5 min-h-[22px]">
           {isSprinting && (
@@ -642,7 +693,7 @@ export function GameHUD() {
         </div>
       </div>
 
-      {/* POST-10-ROUNDS FREE PLAY WEAPON SELECTOR BAR (only visible in FREE_PLAY!) */}
+      {/* POST-10-ROUNDS & PRACTICE FREE PLAY WEAPON SELECTOR BAR (only visible in FREE_PLAY!) */}
       {room.phase === 'playing' && room.roundState === 'FREE_PLAY' && !pauseOpen && (
         <div
           id="hud-free-weapon-bar"
@@ -684,7 +735,7 @@ export function GameHUD() {
           >
             FISTS
           </button>
-          {me.isHost && (
+          {!practiceMode && me.isHost && (
             <button
               id="btn-free-play-lobby"
               type="button"

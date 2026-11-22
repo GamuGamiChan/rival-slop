@@ -47,7 +47,7 @@ class MultiplayerClient {
     return this.mode
   }
 
-  startPracticeMode(playerName: string): void {
+  startPracticeMode(playerName: string, freePlay = false): void {
     this.ws.disconnect()
     this.p2p.disconnect()
     this.sb.disconnect()
@@ -55,7 +55,12 @@ class MultiplayerClient {
     const clean = playerName.trim() || 'Trainee'
     useGameStore.getState().setPlayerName(clean)
     useGameStore.getState().setError(null)
-    this.practice.start(clean)
+    this.practice.start(clean, freePlay)
+  }
+
+  setPracticeFreePlay(enabled: boolean): void {
+    if (this.mode !== 'practice') return
+    this.practice.setFreePlayMode(enabled)
   }
 
   private handleServerMessage(msg: ServerMessage): void {

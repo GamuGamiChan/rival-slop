@@ -578,8 +578,8 @@ export class RoomManager {
   ): { ok: true; snapshot: RoomSnapshot } | { ok: false; code: string; message: string } {
     const room = this.rooms.get(roomCode)
     if (!room) return { ok: false, code: 'ROOM_NOT_FOUND', message: 'ไม่พบห้อง' }
-    if (room.phase !== 'lobby') {
-      return { ok: false, code: 'INVALID_PHASE', message: 'เลือก Agent ได้เฉพาะใน Lobby เท่านั้น' }
+    if (room.phase === 'finished') {
+      return { ok: false, code: 'INVALID_PHASE', message: 'จบเกมแล้ว ไม่สามารถเปลี่ยนสไตล์ได้' }
     }
     if (!AGENT_IDS.includes(agent)) {
       return { ok: false, code: 'INVALID_AGENT', message: 'ไม่พบ Agent ที่เลือก' }
@@ -587,7 +587,19 @@ export class RoomManager {
     const player = room.players.get(playerId)
     if (!player) return { ok: false, code: 'PLAYER_NOT_FOUND', message: 'ไม่พบผู้เล่น' }
 
-    player.agent = agent
+    if (player.agent !== agent) {
+      player.agent = agent
+      // If leaving Aegis while overshield is active, cleanly revert maxHp cap
+      if (agent !== 'aegis' && player.overshieldUntil) {
+        player.overshieldUntil = null
+        player.maxHp = MATCH_CONFIG.MAX_HP
+        player.hp = Math.min(player.hp, player.maxHp)
+      }
+      // If leaving Vortex while overdrive is active, clear overdrive
+      if (agent !== 'vortex' && player.overdriveUntil) {
+        player.overdriveUntil = null
+      }
+    }
     return { ok: true, snapshot: this.buildSnapshot(room) }
   }
 

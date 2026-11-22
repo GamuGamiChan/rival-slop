@@ -42,7 +42,13 @@ export function MainMenu() {
   const handleStartPractice = () => {
     const name = playerName.trim() || 'Trainee'
     setPlayerName(name)
-    multiplayerClient.startPracticeMode(name)
+    multiplayerClient.startPracticeMode(name, false)
+  }
+
+  const handleStartFreePractice = () => {
+    const name = playerName.trim() || 'Trainee'
+    setPlayerName(name)
+    multiplayerClient.startPracticeMode(name, true)
   }
 
   const handleReconnect = async () => {
@@ -175,16 +181,27 @@ export function MainMenu() {
               </button>
             </div>
 
-            {/* Beginner-Friendly Solo Practice Range + Interactive 6-Step Tutorial */}
-            <button
-              id="btn-menu-practice"
-              type="button"
-              onClick={handleStartPractice}
-              className="w-full flex items-center justify-center gap-2.5 py-3 px-4 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-400/55 text-emerald-200 font-display font-bold tracking-wider text-xs uppercase hud-cut-sm transition cursor-pointer"
-            >
-              <GraduationCap className="w-4 h-4 text-emerald-300" />
-              PRACTICE RANGE &amp; TUTORIAL (ฝึกเดิน • เล็ง CTRL • ยิง • จบรอบตอบคณิต)
-            </button>
+            {/* Dedicated Practice Mode Launchers: Free Weapon/Style Sandbox + Round Math Drill */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <button
+                id="btn-menu-free-practice"
+                type="button"
+                onClick={handleStartFreePractice}
+                className="flex items-center justify-center gap-2 py-3 px-3 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/70 text-emerald-100 font-display font-bold tracking-wider text-[11px] uppercase hud-cut-sm transition cursor-pointer shadow-[0_0_18px_rgba(16,185,129,0.2)]"
+              >
+                <Crosshair className="w-4 h-4 text-emerald-300 shrink-0" />
+                <span>โหมดซ้อมอิสระ (เลือกปืน &amp; สไตล์ฟรี)</span>
+              </button>
+              <button
+                id="btn-menu-practice"
+                type="button"
+                onClick={handleStartPractice}
+                className="flex items-center justify-center gap-2 py-3 px-3 bg-slate-900/85 hover:bg-slate-800 border border-cyan-400/50 text-cyan-200 font-display font-bold tracking-wider text-[11px] uppercase hud-cut-sm transition cursor-pointer"
+              >
+                <GraduationCap className="w-4 h-4 text-cyan-300 shrink-0" />
+                <span>ซ้อมรอบคณิต + TUTORIAL</span>
+              </button>
+            </div>
 
             {savedSession && (
               <button
@@ -248,7 +265,7 @@ export function MainMenu() {
                 <span className="font-display text-[11px] tracking-[0.2em] text-amber-300 uppercase flex items-center gap-1.5">
                   <Sparkles className="w-3.5 h-3.5" /> 4 TACTICAL AGENTS (Q / C / X)
                 </span>
-                <span className="text-[10px] font-thai text-slate-400">เลือกได้ใน Lobby</span>
+                <span className="text-[10px] font-thai text-emerald-300">เปลี่ยนสไตล์ได้ทุกตาในเกม!</span>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {AGENT_IDS.map((aid) => {

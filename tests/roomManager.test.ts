@@ -302,8 +302,13 @@ describe('Authoritative RoomManager — Round-Synchronized Gameplay, Weapon Pena
     now += MATCH_CONFIG.ROUND_START_MS
     mgr.tick() // COMBAT_ACTIVE
 
-    // Cannot switch Agent after match started
-    expect(mgr.selectAgent(p1.roomCode, p1.playerId, 'vortex').ok).toBe(false)
+    // Can switch Style/Agent in-game during any round without losing weapon or score
+    const midSwitch = mgr.selectAgent(p1.roomCode, p1.playerId, 'vortex')
+    expect(midSwitch.ok).toBe(true)
+    expect(mgr.getRoom(p1.roomCode)!.players.get(p1.playerId)!.agent).toBe('vortex')
+    // Switch back to aegis to continue testing Aegis abilities
+    expect(mgr.selectAgent(p1.roomCode, p1.playerId, 'aegis').ok).toBe(true)
+    expect(mgr.getRoom(p1.roomCode)!.players.get(p1.playerId)!.agent).toBe('aegis')
 
     // Ultimate rejected before 4 ult points
     const earlyUlt = mgr.useSkill(p1.roomCode, p1.playerId, 'X', { x: 0, y: 1.56, z: -10 }, { x: 0, y: 0, z: 1 })

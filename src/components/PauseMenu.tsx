@@ -41,11 +41,14 @@ export function PauseMenu() {
         {/* Full Sensitivity, Aim Sensitivity, Invert Y, Audio & Reset Controls */}
         <SettingsControlsPanel />
 
-        {/* Practice Mode Agent Quick Switcher */}
-        {practiceMode && me && (
-          <div className="space-y-2 border-t border-slate-800 pt-3">
-            <div className="text-[11px] font-display tracking-widest text-amber-300 uppercase">
-              SWITCH PRACTICE AGENT
+        {/* In-Game Style / Agent Switcher (Available in EVERY Round & Practice Mode) */}
+        {me && (
+          <div id="pause-style-switcher" className="space-y-2 border-t border-slate-800 pt-3">
+            <div className="flex items-center justify-between">
+              <div className="text-[11px] font-display tracking-widest text-amber-300 uppercase">
+                SWITCH STYLE / AGENT (เปลี่ยนสไตล์ได้ทุกรอบ)
+              </div>
+              <span className="text-[10px] font-thai text-slate-400">สกิล Q/C/X เปลี่ยนทันที</span>
             </div>
             <div className="grid grid-cols-4 gap-1.5">
               {AGENT_IDS.map((aid) => {
@@ -54,9 +57,10 @@ export function PauseMenu() {
                 return (
                   <button
                     key={aid}
+                    id={`btn-pause-style-${aid}`}
                     type="button"
                     onClick={() => multiplayerClient.selectAgent(aid)}
-                    className={`py-1.5 px-2 text-[11px] font-display font-bold border uppercase cursor-pointer ${
+                    className={`py-1.5 px-2 text-[11px] font-display font-bold border uppercase cursor-pointer transition ${
                       active
                         ? 'bg-slate-900 text-white'
                         : 'bg-slate-950/75 border-slate-800 text-slate-400 hover:text-white'

@@ -71,7 +71,24 @@ with sync_playwright() as p:
     assert page.locator("#btn-hud-math-quick").count() == 0, "Manual random weapon button must NOT exist!"
     assert page.locator("#btn-hud-open-math").count() == 0, "Manual math roll button must NOT exist!"
     assert page.locator("#hud-round-state").get_attribute("data-round-state") == "COMBAT_ACTIVE"
-    print("      -> Practice Range loaded in COMBAT_ACTIVE with starter Pistol & zero manual roll buttons!", flush=True)
+    # Verify per-round in-game Style/Agent switcher works immediately
+    page.click("#btn-hud-style-phantom")
+    page.wait_for_selector("#hud-agent-badge[data-agent='phantom']", timeout=4000)
+    page.click("#btn-hud-style-vortex")
+    page.wait_for_selector("#hud-agent-badge[data-agent='vortex']", timeout=4000)
+    # Verify Practice Mode Free Weapons toggle works cleanly and toggles back to Math Drill
+    page.click("#btn-practice-toggle-free")
+    page.wait_for_selector("#hud-free-weapon-bar", timeout=4000)
+    page.click("#btn-free-weapon-sniper")
+    page.wait_for_function(
+        "() => (document.querySelector('#hud-weapon-name')?.textContent || '').toUpperCase().includes('HYPERION')",
+        polling=80,
+        timeout=4000,
+    )
+    page.click("#btn-free-weapon-pistol")
+    page.click("#btn-practice-toggle-free")
+    page.wait_for_selector("#hud-round-state[data-round-state='COMBAT_ACTIVE']", timeout=4000)
+    print("      -> Practice Range, In-Game Style Switcher & Free Practice Weapon Sandbox verified!", flush=True)
 
     print("[QA 3/8] Verifying ZERO automatic camera rotation or drift when idle + Testing [TAB] Mouse Look Toggle (Tab ON -> move mouse rotates camera -> Tab OFF)...", flush=True)
     t0 = page.evaluate("window.__MATH_RIVALS_TELEMETRY__()")

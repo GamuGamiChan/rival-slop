@@ -150,11 +150,20 @@ def run_e2e():
             polling=100,
             timeout=6000,
         )
-        print(f"      -> Combat Round 1 shooting ({ammo_before}->{ammo_after}->{ammo_before}), skills & 0-teleport verified!", flush=True)
+        # Exit Mouse Look Mode via Tab (if pointer lock was engaged by shooting) then switch Style mid-round!
+        if page1.locator("#hud-pointer-lock-status").get_attribute("data-mouse-look-active") == "true":
+            page1.keyboard.press("Tab")
+        page1.click("#btn-hud-style-phantom")
+        page1.wait_for_selector("#hud-agent-badge[data-agent='phantom']", timeout=5000)
+        print(f"      -> Combat Round 1 shooting ({ammo_before}->{ammo_after}->{ammo_before}), skills, 0-teleport & mid-round Style switch (AEGIS->PHANTOM) verified!", flush=True)
 
         print("[6/9] Waiting for Combat Round 1 to end -> Automatic Synchronized MATH_CHALLENGE on both browsers...", flush=True)
         page1.wait_for_selector("#math-terminal-modal[data-math-phase='QUESTION_ACTIVE']", timeout=26000)
         page2.wait_for_selector("#math-terminal-modal[data-math-phase='QUESTION_ACTIVE']", timeout=26000)
+
+        # Verify Player 2 can also switch Style between rounds inside the Math Challenge modal!
+        page2.click("#btn-math-style-vortex")
+        page2.wait_for_selector("#hud-agent-badge[data-agent='vortex']", timeout=5000)
 
         q1_p1 = page1.inner_text("#math-question-prompt").strip()
         q1_p2 = page2.inner_text("#math-question-prompt").strip()

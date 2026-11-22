@@ -11,6 +11,7 @@ import {
   XCircle,
 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
+import { AGENT_IDS, AGENTS } from '../../shared/agents.ts'
 import type { AnswerResultPayload, Difficulty, WeaponId } from '../../shared/types.ts'
 import { REWARD_WEAPON_POOL, WEAPONS } from '../../shared/weapons.ts'
 import { inputManager } from '../game/inputManager.ts'
@@ -282,7 +283,7 @@ export function MathModal() {
   const visibleQuestion = activeQuestion ?? submittedQuestion
   const showHint = Boolean(visibleQuestion && hintQuestionId === visibleQuestion.id)
 
-  const serverNow = nowMs + clockOffsetMs
+  const serverNow = Math.max(nowMs + clockOffsetMs, room?.serverNow ?? 0)
   const roundLeftSec =
     room && room.roundPhaseEndsAt !== null
       ? Math.max(0, Math.ceil((room.roundPhaseEndsAt - serverNow) / 1000))
@@ -423,6 +424,40 @@ export function MathModal() {
             </div>
           ))}
         </div>
+
+        {/* Between-Round Style / Agent Switcher */}
+        {me && (
+          <div
+            id="math-style-switcher"
+            className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-slate-950/85 border border-slate-800"
+          >
+            <span className="text-[10px] font-display tracking-[0.16em] text-amber-300 uppercase">
+              STYLE รอบถัดไป:
+            </span>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {AGENT_IDS.map((aid) => {
+                const a = AGENTS[aid]
+                const active = me.agent === aid
+                return (
+                  <button
+                    key={aid}
+                    id={`btn-math-style-${aid}`}
+                    type="button"
+                    onClick={() => multiplayerClient.selectAgent(aid)}
+                    className={`px-2.5 py-1 text-[10px] font-display font-bold uppercase border transition cursor-pointer ${
+                      active
+                        ? 'bg-slate-900 text-white'
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                    style={active ? { borderColor: a.accentColor, color: a.accentColor } : undefined}
+                  >
+                    {a.name}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
         {/* STAGE 1, 2 & 3: QUESTION_ACTIVE / ANSWER_SUBMITTED / ANSWER_FEEDBACK */}
         {visibleQuestion && phase !== 'WEAPON_REVEAL' && (
