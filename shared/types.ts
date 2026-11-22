@@ -1,6 +1,18 @@
 export type Team = 'blue' | 'red'
 
-export type WeaponId = 'pistol' | 'rifle' | 'shotgun' | 'sniper'
+export type WeaponId =
+  | 'pistol'
+  | 'revolver'
+  | 'smg'
+  | 'rifle'
+  | 'burst'
+  | 'shotgun'
+  | 'lmg'
+  | 'sniper'
+
+export type AgentId = 'vortex' | 'aegis' | 'phantom' | 'pulse'
+
+export type SkillSlot = 'Q' | 'C' | 'X'
 
 export type Difficulty = 'easy' | 'medium' | 'hard'
 
@@ -54,10 +66,53 @@ export interface PublicMathQuestion {
   choices: [string, string, string, string]
 }
 
+export type WorldEffectKind = 'barrier' | 'smoke' | 'sonar' | 'orbital' | 'explosion' | 'flash'
+
+export interface WorldEffect {
+  id: string
+  kind: WorldEffectKind
+  ownerId: string
+  ownerTeam: Team
+  position: Vec3
+  radius: number
+  yaw?: number
+  /** For 'barrier' walls: exact world-space AABB so client & server share identical collision */
+  box?: {
+    minX: number
+    maxX: number
+    minY: number
+    maxY: number
+    minZ: number
+    maxZ: number
+  }
+  createdAt: number
+  detonateAt?: number
+  detonated?: boolean
+  expiresAt: number
+  color: string
+}
+
+export interface SkillCastPayload {
+  id: string
+  playerId: string
+  playerName: string
+  team: Team
+  agent: AgentId
+  slot: SkillSlot
+  skillId: string
+  skillName: string
+  origin: Vec3
+  target: Vec3
+  /** Authoritative teleport/dash destination when applicable */
+  newPosition?: Vec3
+  timestamp: number
+}
+
 export interface PlayerPublicState {
   id: string
   name: string
   team: Team
+  agent: AgentId
   ready: boolean
   connected: boolean
   isHost: boolean
@@ -72,6 +127,15 @@ export interface PlayerPublicState {
   ammo: number
   maxAmmo: number
   reloadingUntil: number | null
+  // Valorant-style tactical ability cooldowns & buffs
+  skillQReadyAt: number
+  skillCReadyAt: number
+  ultPoints: number
+  ultMax: number
+  overdriveUntil: number | null
+  overshieldUntil: number | null
+  blindedUntil: number | null
+  revealedUntil: number | null
   kills: number
   deaths: number
   headshots: number
@@ -89,7 +153,8 @@ export interface KillFeedItem {
   victimId: string
   victimName: string
   victimTeam: Team
-  weapon: WeaponId
+  weapon: WeaponId | 'skill'
+  skillLabel?: string
   headshot: boolean
   pointsAwarded: number
   timestamp: number
@@ -112,6 +177,7 @@ export interface ScoreboardEntry {
   playerId: string
   name: string
   team: Team
+  agent: AgentId
   correctAnswers: number
   wrongAnswers: number
   kills: number
@@ -143,6 +209,7 @@ export interface RoomSnapshot {
   players: PlayerPublicState[]
   scoreboard: ScoreboardEntry[]
   killFeed: KillFeedItem[]
+  worldEffects: WorldEffect[]
   summary: MatchSummary | null
 }
 
@@ -170,7 +237,7 @@ export interface HitConfirmPayload {
 export interface DamageTakenPayload {
   attackerId: string
   attackerName: string
-  weapon: WeaponId
+  weapon: WeaponId | 'skill'
   damage: number
   headshot: boolean
   remainingHp: number
@@ -187,12 +254,14 @@ export type ClientMessage =
   | { type: 'LEAVE_ROOM' }
   | { type: 'SET_READY'; ready: boolean }
   | { type: 'SWITCH_TEAM'; team: Team }
+  | { type: 'SELECT_AGENT'; agent: AgentId }
   | { type: 'START_MATCH' }
   | { type: 'RETURN_TO_LOBBY' }
   | { type: 'PLAYER_MOVE'; position: Vec3; yaw: number; pitch: number }
   | { type: 'REQUEST_QUESTION'; preferredDifficulty?: Difficulty }
   | { type: 'SUBMIT_ANSWER'; questionId: string; selectedIndex: number }
   | { type: 'SHOOT'; origin: Vec3; direction: Vec3 }
+  | { type: 'USE_SKILL'; slot: SkillSlot; origin: Vec3; direction: Vec3 }
   | { type: 'RELOAD' }
   | { type: 'PING'; clientTime: number }
 
@@ -216,16 +285,25 @@ export type ServerMessage =
         yaw: number
         pitch: number
         hp: number
+        maxHp: number
         alive: boolean
         respawnAt: number | null
         weapon: WeaponId | null
         ammo: number
         reloadingUntil: number | null
+        skillQReadyAt: number
+        skillCReadyAt: number
+        ultPoints: number
+        overdriveUntil: number | null
+        overshieldUntil: number | null
+        blindedUntil: number | null
+        revealedUntil: number | null
       }>
     }
   | { type: 'QUESTION_ASSIGNED'; question: PublicMathQuestion }
   | { type: 'ANSWER_RESULT'; result: AnswerResultPayload }
   | { type: 'SHOT_FIRED'; shot: ShotEvent }
+  | { type: 'SKILL_CAST'; cast: SkillCastPayload }
   | { type: 'HIT_CONFIRMED'; hit: HitConfirmPayload }
   | { type: 'DAMAGE_TAKEN'; damage: DamageTakenPayload }
   | { type: 'KILL_EVENT'; kill: KillFeedItem }
@@ -233,7 +311,6 @@ export type ServerMessage =
   | { type: 'PONG'; clientTime: number; serverNow: number }
   | { type: 'ERROR'; code: string; message: string }
 
-// Scoring constants (exact specification)
 export const SCORING = {
   MATH_CORRECT: 100,
   MATH_WRONG: 0,

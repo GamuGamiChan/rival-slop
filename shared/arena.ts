@@ -138,6 +138,7 @@ export function resolvePlayerMovement(
   current: Vec3,
   desired: Vec3,
   velocityY: number,
+  extraBoxes: ArenaBox[] = [],
 ): { position: Vec3; velocityY: number; grounded: boolean; hitJumpPad: boolean } {
   const r = PLAYER_DIMENSIONS.radius
   const stepHeight = 0.65
@@ -145,9 +146,10 @@ export function resolvePlayerMovement(
   let y = desired.y
   let z = desired.z
   let vy = velocityY
+  const allBoxes = extraBoxes.length > 0 ? [...ARENA_BOXES, ...extraBoxes] : ARENA_BOXES
 
   // 1. Resolve horizontal overlaps against boxes we cannot step onto
-  for (const box of ARENA_BOXES) {
+  for (const box of allBoxes) {
     // Only collide horizontally if player vertical body overlaps box vertical extent
     const playerBottom = current.y
     const playerTop = current.y + PLAYER_DIMENSIONS.height
@@ -187,7 +189,7 @@ export function resolvePlayerMovement(
 
   // 2. Find highest supporting surface under (x, z)
   let groundY = 0
-  for (const box of ARENA_BOXES) {
+  for (const box of allBoxes) {
     if (x + r * 0.75 > box.minX && x - r * 0.75 < box.maxX && z + r * 0.75 > box.minZ && z - r * 0.75 < box.maxZ) {
       if (current.y + stepHeight >= box.maxY && box.maxY > groundY) {
         groundY = box.maxY
@@ -251,8 +253,13 @@ export function rayIntersectsBox(origin: Vec3, dir: Vec3, box: ArenaBox, maxDist
   return tmin >= 0 && tmin <= maxDist ? tmin : null
 }
 
-/** Finds closest obstacle distance along a ray (walls, floors, cover). */
-export function raycastArenaObstacles(origin: Vec3, dir: Vec3, maxDist: number): number {
+/** Finds closest obstacle distance along a ray (walls, floors, cover, dynamic barrier walls). */
+export function raycastArenaObstacles(
+  origin: Vec3,
+  dir: Vec3,
+  maxDist: number,
+  extraBoxes: ArenaBox[] = [],
+): number {
   let closest = maxDist
 
   // Floor plane (y = 0)
@@ -264,6 +271,13 @@ export function raycastArenaObstacles(origin: Vec3, dir: Vec3, maxDist: number):
   }
 
   for (const box of ARENA_BOXES) {
+    const t = rayIntersectsBox(origin, dir, box, closest)
+    if (t !== null && t < closest) {
+      closest = t
+    }
+  }
+
+  for (const box of extraBoxes) {
     const t = rayIntersectsBox(origin, dir, box, closest)
     if (t !== null && t < closest) {
       closest = t

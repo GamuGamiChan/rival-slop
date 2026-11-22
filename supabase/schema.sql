@@ -29,7 +29,7 @@ create table if not exists public.room_players (
   team text not null check (team in ('blue', 'red')),
   ready boolean not null default false,
   is_host boolean not null default false,
-  weapon text check (weapon in ('pistol', 'rifle', 'shotgun', 'sniper')),
+  weapon text check (weapon in ('pistol', 'revolver', 'smg', 'rifle', 'burst', 'shotgun', 'lmg', 'sniper')),
   kills int not null default 0,
   deaths int not null default 0,
   headshots int not null default 0,
