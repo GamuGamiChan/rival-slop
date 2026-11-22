@@ -1,4 +1,5 @@
 import { createClient, type RealtimeChannel, type SupabaseClient } from '@supabase/supabase-js'
+import { DEFAULT_QUESTION_SET } from '../../shared/questionSets.ts'
 import { getSpawnForTeam, normalizeVec3, raycastArenaObstacles, raycastPlayerHitbox } from '../../shared/arena.ts'
 import { pickNextQuestion, QUESTION_BY_ID, toPublicQuestion } from '../../shared/questions.ts'
 import {
@@ -310,6 +311,9 @@ export class SupabaseAdapter {
     return {
       roomCode: r.room_code,
       hostId: r.host_player_id,
+      questionSetId: DEFAULT_QUESTION_SET.id,
+      questionSetName: DEFAULT_QUESTION_SET.name,
+      questionSetCount: DEFAULT_QUESTION_SET.questions.length,
       phase: effectivePhase,
       roundNumber: 1,
       maxRounds: MATCH_CONFIG.MAX_ROUNDS,

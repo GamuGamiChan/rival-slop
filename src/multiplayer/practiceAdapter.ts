@@ -5,7 +5,7 @@ import {
   type ArenaBox,
 } from '../../shared/arena.ts'
 import { RoomManager } from '../../shared/roomManager.ts'
-import type { ClientMessage, ServerMessage, Vec3 } from '../../shared/types.ts'
+import type { ClientMessage, QuestionSet, ServerMessage, Vec3 } from '../../shared/types.ts'
 import { WEAPONS } from '../../shared/weapons.ts'
 import { useGameStore, type PracticeTarget } from '../store/useGameStore.ts'
 
@@ -92,10 +92,10 @@ export class PracticeAdapter {
     this.onMessage = handler
   }
 
-  start(playerName: string, freePlay = false): void {
+  start(playerName: string, freePlay = false, questionSet?: QuestionSet): void {
     this.disconnect()
     const mgr = new RoomManager()
-    const created = mgr.createRoom(playerName || 'Trainee')
+    const created = mgr.createRoom(playerName || 'Trainee', questionSet)
     // Add an internal hidden sparring anchor solely so RoomManager transitions to playing cleanly,
     // then mark it permanently hidden (disconnected) and spawn Hologram Target Drones instead.
     const dummy = mgr.joinRoom(created.roomCode, 'RangeAnchor')

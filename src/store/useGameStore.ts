@@ -280,6 +280,8 @@ export interface GameState {
   scoreboardOpen: boolean
   controlsGuideOpen: boolean
   creditsModalOpen: boolean
+  questionEditorOpen: boolean
+  questionSetsVersion: number
   settingsModalOpen: boolean
   showControlsRef: boolean
   tutorialOpen: boolean
@@ -307,6 +309,8 @@ export interface GameState {
   setScoreboardOpen: (open: boolean) => void
   setControlsGuideOpen: (open: boolean) => void
   setCreditsModalOpen: (open: boolean) => void
+  setQuestionEditorOpen: (open: boolean) => void
+  bumpQuestionSetsVersion: () => void
   setSettingsModalOpen: (open: boolean) => void
   toggleControlsRef: () => void
   setTutorialOpen: (open: boolean) => void
@@ -445,6 +449,8 @@ export const useGameStore = create<GameState>((set, get) => ({
   scoreboardOpen: false,
   controlsGuideOpen: false,
   creditsModalOpen: false,
+  questionEditorOpen: false,
+  questionSetsVersion: 0,
   settingsModalOpen: false,
   showControlsRef: false,
   tutorialOpen: false,
@@ -490,6 +496,8 @@ export const useGameStore = create<GameState>((set, get) => ({
   setScoreboardOpen: (scoreboardOpen) => set({ scoreboardOpen }),
   setControlsGuideOpen: (controlsGuideOpen) => set({ controlsGuideOpen }),
   setCreditsModalOpen: (creditsModalOpen) => set({ creditsModalOpen }),
+  setQuestionEditorOpen: (questionEditorOpen) => set({ questionEditorOpen }),
+  bumpQuestionSetsVersion: () => set((s) => ({ questionSetsVersion: s.questionSetsVersion + 1 })),
   setSettingsModalOpen: (settingsModalOpen) => set({ settingsModalOpen }),
   toggleControlsRef: () => set((s) => ({ showControlsRef: !s.showControlsRef })),
   setTutorialOpen: (tutorialOpen) => set({ tutorialOpen }),

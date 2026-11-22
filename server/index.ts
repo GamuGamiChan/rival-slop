@@ -115,7 +115,7 @@ function handleClientMessage(session: ClientSession, msg: ClientMessage): void {
         manager.markDisconnected(session.roomCode, session.playerId, true)
         broadcastRoomState(session.roomCode)
       }
-      const created = manager.createRoom(msg.playerName ?? '')
+      const created = manager.createRoom(msg.playerName ?? '', msg.questionSet)
       session.roomCode = created.roomCode
       session.playerId = created.playerId
       playerSockets.set(created.playerId, session)
@@ -237,6 +237,17 @@ function handleClientMessage(session: ClientSession, msg: ClientMessage): void {
       } else {
         broadcastToRoom(session.roomCode, { type: 'ROOM_STATE', room: res.snapshot })
       }
+      break
+    }
+
+    case 'SET_QUESTION_SET': {
+      if (!session.roomCode || !session.playerId) break
+      const res = manager.setQuestionSet(session.roomCode, session.playerId, msg.questionSet)
+      if (!res.ok) {
+        sendToSession(session, { type: 'ERROR', code: res.code, message: res.message })
+        break
+      }
+      broadcastToRoom(session.roomCode, { type: 'ROOM_STATE', room: res.snapshot })
       break
     }
 
@@ -378,12 +389,16 @@ function handleClientMessage(session: ClientSession, msg: ClientMessage): void {
   }
 }
 
+/** Upper bound for a single client message (covers a 150-question custom set). */
+const MAX_CLIENT_PAYLOAD_CHARS = 512 * 1024
+
 function readJsonBody(req: http.IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     let raw = ''
     req.on('data', (chunk: Buffer) => {
       raw += chunk.toString('utf8')
-      if (raw.length > 16384) {
+      // Custom question sets (≤150 questions) can be sent with CREATE_ROOM / SET_QUESTION_SET
+      if (raw.length > MAX_CLIENT_PAYLOAD_CHARS) {
         reject(new Error('PAYLOAD_TOO_LARGE'))
         req.destroy()
       }
@@ -518,7 +533,7 @@ wss.on('connection', (ws) => {
     let msg: ClientMessage
     try {
       const text = typeof raw === 'string' ? raw : raw.toString('utf8')
-      if (text.length > 8192) {
+      if (text.length > MAX_CLIENT_PAYLOAD_CHARS) {
         sendToSession(session, { type: 'ERROR', code: 'PAYLOAD_TOO_LARGE', message: 'Payload too large' })
         return
       }

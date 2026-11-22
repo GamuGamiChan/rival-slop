@@ -1,6 +1,6 @@
 import Peer, { type DataConnection } from 'peerjs'
 import { RoomManager, type CombatHitRecord } from '../../shared/roomManager.ts'
-import type { ClientMessage, ServerMessage } from '../../shared/types.ts'
+import type { ClientMessage, QuestionSet, ServerMessage } from '../../shared/types.ts'
 import { useGameStore } from '../store/useGameStore.ts'
 
 const PEER_PREFIX = 'mr3d-'
@@ -46,12 +46,12 @@ export class P2PAdapter {
     return this.role !== null
   }
 
-  async createRoom(playerName: string): Promise<void> {
+  async createRoom(playerName: string, questionSet?: QuestionSet): Promise<void> {
     this.disconnect()
     useGameStore.getState().setConnectionStatus('connecting')
 
     const mgr = new RoomManager()
-    const created = mgr.createRoom(playerName)
+    const created = mgr.createRoom(playerName, questionSet)
     const hostPeerId = `${PEER_PREFIX}${created.roomCode}`
 
     await new Promise<void>((resolve, reject) => {
@@ -409,6 +409,14 @@ export class P2PAdapter {
       case 'START_MATCH': {
         if (!senderId) return
         const res = this.manager.startMatch(roomCode, senderId)
+        if (!res.ok) reply({ type: 'ERROR', code: res.code, message: res.message })
+        else this.broadcastToAll({ type: 'ROOM_STATE', room: res.snapshot })
+        break
+      }
+
+      case 'SET_QUESTION_SET': {
+        if (!senderId) return
+        const res = this.manager.setQuestionSet(roomCode, senderId, msg.questionSet)
         if (!res.ok) reply({ type: 'ERROR', code: res.code, message: res.message })
         else this.broadcastToAll({ type: 'ROOM_STATE', room: res.snapshot })
         break

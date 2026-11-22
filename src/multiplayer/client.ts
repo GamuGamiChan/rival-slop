@@ -2,11 +2,13 @@ import type {
   AgentId,
   Difficulty,
   MathHelperType,
+  QuestionSet,
   ServerMessage,
   SkillSlot,
   Team,
   Vec3,
 } from '../../shared/types.ts'
+import { getSelectedQuestionSet } from '../game/questionSetStore.ts'
 import { soundEngine } from '../game/sound.ts'
 import { loadSession, useGameStore } from '../store/useGameStore.ts'
 import { P2PAdapter } from './p2pAdapter.ts'
@@ -55,6 +57,26 @@ class MultiplayerClient {
     return this.mode
   }
 
+  /** Built-in sets are sent by reference only (server resolves canonical questions); custom sets are sent in full. */
+  private toWireQuestionSet(set: QuestionSet): QuestionSet {
+    if (set.builtIn) {
+      return { id: set.id, name: set.name, description: set.description, builtIn: true, questions: [] }
+    }
+    return set
+  }
+
+  /** Host-only: change the room's question set while in the lobby. */
+  setQuestionSet(set: QuestionSet): void {
+    const wire = this.toWireQuestionSet(set)
+    if (this.mode === 'p2p') {
+      this.p2p.sendMessage({ type: 'SET_QUESTION_SET', questionSet: wire })
+    } else if (this.mode === 'ws') {
+      this.ws.sendRaw({ type: 'SET_QUESTION_SET', questionSet: wire })
+    } else if (this.mode === 'practice') {
+      this.practice.sendMessage({ type: 'SET_QUESTION_SET', questionSet: wire })
+    }
+  }
+
   startPracticeMode(playerName: string, freePlay = false): void {
     this.ws.disconnect()
     this.p2p.disconnect()
@@ -63,7 +85,7 @@ class MultiplayerClient {
     const clean = playerName.trim() || 'Trainee'
     useGameStore.getState().setPlayerName(clean)
     useGameStore.getState().setError(null)
-    this.practice.start(clean, freePlay)
+    this.practice.start(clean, freePlay, this.toWireQuestionSet(getSelectedQuestionSet()))
   }
 
   setPracticeFreePlay(enabled: boolean): void {
@@ -133,7 +155,8 @@ class MultiplayerClient {
     }
   }
 
-  async createRoom(playerName: string): Promise<void> {
+  async createRoom(playerName: string, questionSet: QuestionSet = getSelectedQuestionSet()): Promise<void> {
+    const wireSet = this.toWireQuestionSet(questionSet)
     if (this.mode === 'practice') {
       this.practice.disconnect()
       this.mode = resolveInitialTransportMode()
@@ -149,17 +172,17 @@ class MultiplayerClient {
         return
       }
       if (this.mode === 'p2p') {
-        await this.p2p.createRoom(clean)
+        await this.p2p.createRoom(clean, wireSet)
         return
       }
       // Try dedicated WebSocket/HTTP server first; if absent (static host), fall back to WebRTC P2P!
       try {
         await this.ws.ensureConnected()
-        this.ws.sendRaw({ type: 'CREATE_ROOM', playerName: clean })
+        this.ws.sendRaw({ type: 'CREATE_ROOM', playerName: clean, questionSet: wireSet })
       } catch {
         this.mode = 'p2p'
         useGameStore.getState().setTransportMode('p2p')
-        await this.p2p.createRoom(clean)
+        await this.p2p.createRoom(clean, wireSet)
       }
     } catch (err) {
       useGameStore.getState().setError(err instanceof Error ? err.message : 'เชื่อมต่อไม่สำเร็จ')

@@ -1025,8 +1025,9 @@ export function pickNextQuestion(
   usedIds: ReadonlySet<string>,
   preferredDifficulty?: Difficulty,
   rng: () => number = Math.random,
+  bank: readonly MathQuestion[] = QUESTION_BANK,
 ): MathQuestion | null {
-  let candidates = QUESTION_BANK.filter((q) => !usedIds.has(q.id))
+  let candidates = bank.filter((q) => !usedIds.has(q.id))
   if (candidates.length === 0) {
     return null
   }

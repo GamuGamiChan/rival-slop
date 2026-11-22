@@ -5,6 +5,7 @@ import { LobbyScreen } from './components/LobbyScreen.tsx'
 import { MainMenu } from './components/MainMenu.tsx'
 import { MathModal } from './components/MathModal.tsx'
 import { PauseMenu } from './components/PauseMenu.tsx'
+import { QuestionSetEditor } from './components/QuestionSetEditor.tsx'
 import { ResultScreen } from './components/ResultScreen.tsx'
 import { RoomScreen } from './components/RoomScreen.tsx'
 import { ScoreboardOverlay } from './components/ScoreboardOverlay.tsx'
@@ -37,9 +38,10 @@ export default function App() {
       )}
       {screen === 'result' && <ResultScreen />}
 
-      {/* Main Menu Controls Guide, Settings & 3D Asset Credits Modals */}
+      {/* Main Menu Controls Guide, Settings, 3D Asset Credits & Question Set Editor Modals */}
       <ControlsSettingsModal />
       <AssetCreditsModal />
+      <QuestionSetEditor />
     </div>
   )
 }

@@ -1,7 +1,12 @@
-import { ArrowLeftRight, Check, Copy, Crown, LogOut, Play, Shield, Sparkles, Users } from 'lucide-react'
+import { ArrowLeftRight, BookOpen, Check, Copy, Crown, LogOut, Play, Shield, Sparkles, Users } from 'lucide-react'
 import { useState } from 'react'
 import { AGENT_IDS, AGENTS } from '../../shared/agents.ts'
 import { MATCH_CONFIG, type PlayerPublicState } from '../../shared/types.ts'
+import {
+  getAllQuestionSets,
+  getQuestionSetById,
+  saveSelectedQuestionSetId,
+} from '../game/questionSetStore.ts'
 import { multiplayerClient } from '../multiplayer/client.ts'
 import { selectMyPlayer, useGameStore } from '../store/useGameStore.ts'
 
@@ -131,10 +136,13 @@ export function LobbyScreen() {
   const myId = useGameStore((s) => s.playerId)
   const me = useGameStore(selectMyPlayer)
   const errorMessage = useGameStore((s) => s.errorMessage)
+  const setQuestionEditorOpen = useGameStore((s) => s.setQuestionEditorOpen)
+  const questionSetsVersion = useGameStore((s) => s.questionSetsVersion)
   const [copied, setCopied] = useState(false)
 
   if (!room || !me) return null
 
+  const allQuestionSets = questionSetsVersion >= 0 ? getAllQuestionSets() : []
   const bluePlayers = room.players.filter((p) => p.team === 'blue')
   const redPlayers = room.players.filter((p) => p.team === 'red')
   const connectedCount = room.players.filter((p) => p.connected).length
@@ -205,6 +213,62 @@ export function LobbyScreen() {
             {errorMessage}
           </div>
         )}
+
+        {/* Active Room Question Set Bar */}
+        <section className="hud-panel hud-cut-sm border border-cyan-500/40 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <BookOpen className="w-4 h-4 text-cyan-400 shrink-0" />
+            <div>
+              <div className="text-[10px] font-display tracking-[0.2em] text-slate-400 uppercase">
+                ROOM QUESTION SET
+              </div>
+              <div id="lobby-question-set-name" className="font-thai text-sm font-bold text-white">
+                {room.questionSetName}{' '}
+                <span className="text-cyan-300 font-display text-xs">({room.questionSetCount} ข้อ)</span>
+              </div>
+            </div>
+          </div>
+
+          {me.isHost ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                id="lobby-select-question-set"
+                value={
+                  allQuestionSets.some((s) => s.id === room.questionSetId)
+                    ? room.questionSetId
+                    : ''
+                }
+                onChange={(e) => {
+                  const chosen = getQuestionSetById(e.target.value)
+                  saveSelectedQuestionSetId(chosen.id)
+                  multiplayerClient.setQuestionSet(chosen)
+                }}
+                className="px-3 py-1.5 bg-slate-950 border border-slate-700 focus:border-cyan-400 focus:outline-none text-white font-thai text-xs"
+              >
+                {!allQuestionSets.some((s) => s.id === room.questionSetId) && (
+                  <option value="">{room.questionSetName} ({room.questionSetCount} ข้อ)</option>
+                )}
+                {allQuestionSets.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.builtIn ? '[มาตรฐาน]' : '[กำหนดเอง]'} {s.name} ({s.questions.length} ข้อ)
+                  </option>
+                ))}
+              </select>
+              <button
+                id="btn-lobby-question-editor"
+                type="button"
+                onClick={() => setQuestionEditorOpen(true)}
+                className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 border border-cyan-500/50 text-cyan-300 font-thai font-bold text-xs cursor-pointer"
+              >
+                ออกแบบ / แก้ไขโจทย์
+              </button>
+            </div>
+          ) : (
+            <span className="font-thai text-xs text-slate-400">
+              หัวห้อง ({room.players.find((p) => p.isHost)?.name ?? 'Host'}) เป็นผู้เลือกชุดโจทย์
+            </span>
+          )}
+        </section>
 
         {/* Blue vs Red Teams */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

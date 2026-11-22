@@ -71,6 +71,14 @@ export interface MathHelperPayload {
   }
 }
 
+export interface QuestionSet {
+  id: string
+  name: string
+  description: string
+  builtIn?: boolean
+  questions: MathQuestion[]
+}
+
 /** Sanitized question sent to clients — never leaks correctIndex or explanation prematurely */
 export interface PublicMathQuestion {
   id: string
@@ -238,6 +246,9 @@ export interface RoomSnapshot {
   roomCode: string
   hostId: string
   phase: MatchPhase
+  questionSetId: string
+  questionSetName: string
+  questionSetCount: number
   roundNumber: number
   maxRounds: number
   roundState: RoundState
@@ -296,13 +307,14 @@ export interface DamageTakenPayload {
 // Client -> Server WebSocket Messages
 // ==========================================
 export type ClientMessage =
-  | { type: 'CREATE_ROOM'; playerName: string }
+  | { type: 'CREATE_ROOM'; playerName: string; questionSet?: QuestionSet }
   | { type: 'JOIN_ROOM'; roomCode: string; playerName: string }
   | { type: 'RECONNECT'; roomCode: string; playerId: string; sessionToken: string }
   | { type: 'LEAVE_ROOM' }
   | { type: 'SET_READY'; ready: boolean }
   | { type: 'SWITCH_TEAM'; team: Team }
   | { type: 'SELECT_AGENT'; agent: AgentId }
+  | { type: 'SET_QUESTION_SET'; questionSet: QuestionSet }
   | { type: 'START_MATCH' }
   | { type: 'START_FREE_PLAY' }
   | { type: 'SELECT_FREE_WEAPON'; weapon: WeaponId | null }

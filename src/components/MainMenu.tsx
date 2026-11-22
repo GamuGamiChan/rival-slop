@@ -1,4 +1,5 @@
 import {
+  BookOpen,
   Box,
   Crosshair,
   GraduationCap,
@@ -16,6 +17,12 @@ import {
 import { useState } from 'react'
 import { AGENT_IDS, AGENTS } from '../../shared/agents.ts'
 import { REWARD_WEAPON_POOL, WEAPONS } from '../../shared/weapons.ts'
+import {
+  getAllQuestionSets,
+  getQuestionSetById,
+  loadSelectedQuestionSetId,
+  saveSelectedQuestionSetId,
+} from '../game/questionSetStore.ts'
 import { multiplayerClient } from '../multiplayer/client.ts'
 import { loadSession, useGameStore } from '../store/useGameStore.ts'
 import { FullscreenButton } from './FullscreenButton.tsx'
@@ -26,6 +33,9 @@ export function MainMenu() {
   const setScreen = useGameStore((s) => s.setScreen)
   const setControlsGuideOpen = useGameStore((s) => s.setControlsGuideOpen)
   const setCreditsModalOpen = useGameStore((s) => s.setCreditsModalOpen)
+  const setQuestionEditorOpen = useGameStore((s) => s.setQuestionEditorOpen)
+  const questionSetsVersion = useGameStore((s) => s.questionSetsVersion)
+  const bumpQuestionSetsVersion = useGameStore((s) => s.bumpQuestionSetsVersion)
   const muted = useGameStore((s) => s.muted)
   const setMuted = useGameStore((s) => s.setMuted)
   const errorMessage = useGameStore((s) => s.errorMessage)
@@ -33,10 +43,14 @@ export function MainMenu() {
   const [savedSession] = useState(() => loadSession())
   const [reconnecting, setReconnecting] = useState(false)
 
+  const selectedSetId = questionSetsVersion >= 0 ? loadSelectedQuestionSetId() : loadSelectedQuestionSetId()
+  const allQuestionSets = getAllQuestionSets()
+  const activeQuestionSet = getQuestionSetById(selectedSetId)
+
   const handleQuickCreate = async () => {
     const name = playerName.trim() || `Rival_${Math.floor(100 + Math.random() * 900)}`
     setPlayerName(name)
-    await multiplayerClient.createRoom(name)
+    await multiplayerClient.createRoom(name, activeQuestionSet)
   }
 
   const handleStartPractice = () => {
@@ -152,6 +166,41 @@ export function MainMenu() {
                 placeholder="ใส่ชื่อผู้เล่น เช่น NeonMath01"
                 className="w-full px-4 py-3 bg-slate-950/90 border border-slate-700 focus:border-cyan-400 focus:outline-none text-white font-semibold tracking-wide text-base placeholder:text-slate-500"
               />
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <label
+                  htmlFor="select-question-set"
+                  className="block text-xs font-display tracking-[0.18em] text-slate-400 uppercase"
+                >
+                  QUESTION SET (ชุดโจทย์ที่ใช้แข่ง)
+                </label>
+                <button
+                  id="btn-menu-question-editor"
+                  type="button"
+                  onClick={() => setQuestionEditorOpen(true)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-900 hover:bg-slate-800 border border-cyan-500/50 text-cyan-300 text-[11px] font-thai font-bold transition cursor-pointer"
+                >
+                  <BookOpen className="w-3.5 h-3.5" />
+                  ออกแบบ / แก้ไขชุดโจทย์
+                </button>
+              </div>
+              <select
+                id="select-question-set"
+                value={activeQuestionSet.id}
+                onChange={(e) => {
+                  saveSelectedQuestionSetId(e.target.value)
+                  bumpQuestionSetsVersion()
+                }}
+                className="w-full px-3.5 py-2.5 bg-slate-950/90 border border-slate-700 focus:border-cyan-400 focus:outline-none text-white font-thai text-sm"
+              >
+                {allQuestionSets.map((setItem) => (
+                  <option key={setItem.id} value={setItem.id}>
+                    {setItem.builtIn ? '[มาตรฐาน]' : '[กำหนดเอง]'} {setItem.name} ({setItem.questions.length} ข้อ)
+                  </option>
+                ))}
+              </select>
             </div>
 
             {errorMessage && (

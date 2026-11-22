@@ -42,7 +42,8 @@ import {
   raycastPlayerHitbox,
   type ArenaBox,
 } from './arena.ts'
-import { getQuestionStepHint, pickNextQuestion, QUESTION_BY_ID, toPublicQuestion } from './questions.ts'
+import { getQuestionStepHint, pickNextQuestion, toPublicQuestion } from './questions.ts'
+import { DEFAULT_QUESTION_SET, sanitizeQuestionSet } from './questionSets.ts'
 import {
   MATCH_CONFIG,
   SCORING,
@@ -52,12 +53,14 @@ import {
   type Difficulty,
   type HitConfirmPayload,
   type KillFeedItem,
+  type MathQuestion,
   type MathHelperPayload,
   type MathHelperType,
   type MatchPhase,
   type MatchSummary,
   type PlayerPublicState,
   type PublicMathQuestion,
+  type QuestionSet,
   type RoomSnapshot,
   type RoundState,
   type ScoreboardEntry,
@@ -93,6 +96,8 @@ export interface InternalRoom {
   activeRoundQuestionId: string | null
   roundAnsweredPlayerIds: Set<string>
   roomUsedQuestionIds: Set<string>
+  questionSet: QuestionSet
+  questionById: Map<string, MathQuestion>
   createdAt: number
   countdownEndsAt: number | null
   matchStartedAt: number | null
@@ -299,7 +304,7 @@ export class RoomManager {
     }
   }
 
-  createRoom(playerName: string): {
+  createRoom(playerName: string, rawQuestionSet?: unknown): {
     roomCode: string
     playerId: string
     sessionToken: string
@@ -366,6 +371,8 @@ export class RoomManager {
       activeRoundQuestionId: null,
       roundAnsweredPlayerIds: new Set<string>(),
       roomUsedQuestionIds: new Set<string>(),
+      questionSet: DEFAULT_QUESTION_SET,
+      questionById: new Map(),
       createdAt: now,
       countdownEndsAt: null,
       matchStartedAt: null,
@@ -377,6 +384,9 @@ export class RoomManager {
       spawnCounter: { blue: 1, red: 0 },
     }
 
+    const sanitized = sanitizeQuestionSet(rawQuestionSet ?? null)
+    this.applyQuestionSet(room, sanitized.ok ? sanitized.set : DEFAULT_QUESTION_SET)
+
     this.rooms.set(roomCode, room)
     return {
       roomCode,
@@ -384,6 +394,32 @@ export class RoomManager {
       sessionToken,
       snapshot: this.buildSnapshot(room),
     }
+  }
+
+  private applyQuestionSet(room: InternalRoom, set: QuestionSet): void {
+    room.questionSet = set
+    room.questionById = new Map(set.questions.map((q) => [q.id, q]))
+    room.roomUsedQuestionIds = new Set<string>()
+  }
+
+  /** Host-only: change the room's question set while still in the lobby. Server sanitizes the payload. */
+  setQuestionSet(
+    roomCode: string,
+    requesterId: string,
+    rawQuestionSet: unknown,
+  ): { ok: true; snapshot: RoomSnapshot } | { ok: false; code: string; message: string } {
+    const room = this.rooms.get(roomCode)
+    if (!room) return { ok: false, code: 'ROOM_NOT_FOUND', message: 'ไม่พบห้อง' }
+    if (room.hostId !== requesterId) {
+      return { ok: false, code: 'NOT_HOST', message: 'เฉพาะหัวห้องเท่านั้นที่เปลี่ยนชุดโจทย์ได้' }
+    }
+    if (room.phase !== 'lobby') {
+      return { ok: false, code: 'MATCH_IN_PROGRESS', message: 'เปลี่ยนชุดโจทย์ได้เฉพาะตอนอยู่ในล็อบบี้' }
+    }
+    const sanitized = sanitizeQuestionSet(rawQuestionSet)
+    if (!sanitized.ok) return { ok: false, code: 'INVALID_QUESTION_SET', message: sanitized.message }
+    this.applyQuestionSet(room, sanitized.set)
+    return { ok: true, snapshot: this.buildSnapshot(room) }
   }
 
   joinRoom(
@@ -893,10 +929,10 @@ export class RoomManager {
     room.roundPhaseEndsAt = now + MATCH_CONFIG.MATH_CHALLENGE_MS
     room.roundAnsweredPlayerIds.clear()
 
-    let nextQ = pickNextQuestion(room.roomUsedQuestionIds, undefined, this.rngFn)
+    let nextQ = pickNextQuestion(room.roomUsedQuestionIds, undefined, this.rngFn, room.questionSet.questions)
     if (!nextQ) {
       room.roomUsedQuestionIds.clear()
-      nextQ = pickNextQuestion(room.roomUsedQuestionIds, undefined, this.rngFn)
+      nextQ = pickNextQuestion(room.roomUsedQuestionIds, undefined, this.rngFn, room.questionSet.questions)
     }
     if (!nextQ) return null
 
@@ -942,7 +978,7 @@ export class RoomManager {
 
     const qId = room.activeRoundQuestionId ?? player.activeQuestionId
     if (qId && !player.attemptedQuestionIds.has(qId)) {
-      const existing = QUESTION_BY_ID.get(qId)
+      const existing = room.questionById.get(qId)
       if (existing) {
         player.activeQuestionId = existing.id
         return { ok: true, question: toPublicQuestion(existing) }
@@ -983,7 +1019,7 @@ export class RoomManager {
     if (!activeQId || activeQId !== questionId) {
       return { ok: false, code: 'QUESTION_MISMATCH', message: 'โจทย์ไม่ตรงกับรอบปัจจุบัน' }
     }
-    const question = QUESTION_BY_ID.get(questionId)
+    const question = room.questionById.get(questionId)
     if (!question) {
       return { ok: false, code: 'QUESTION_NOT_FOUND', message: 'ไม่พบข้อมูลโจทย์' }
     }
@@ -1121,7 +1157,7 @@ export class RoomManager {
       }
     }
 
-    const question = QUESTION_BY_ID.get(questionId)
+    const question = room.questionById.get(questionId)
     if (!question) {
       return { ok: false, code: 'QUESTION_NOT_FOUND', message: 'ไม่พบคำถามในระบบ' }
     }
@@ -1823,7 +1859,7 @@ export class RoomManager {
             // suffers the wrong-answer Weapon Penalty (-300 points & weapon confiscation)
             const timeoutResults: Array<{ playerId: string; result: AnswerResultPayload }> = []
             const q = room.activeRoundQuestionId
-              ? QUESTION_BY_ID.get(room.activeRoundQuestionId)
+              ? room.questionById.get(room.activeRoundQuestionId)
               : undefined
 
             if (q) {
@@ -2114,7 +2150,7 @@ export class RoomManager {
     }))
 
     const rawQ = room.activeRoundQuestionId
-      ? QUESTION_BY_ID.get(room.activeRoundQuestionId)
+      ? room.questionById.get(room.activeRoundQuestionId)
       : undefined
     const activeRoundQuestion =
       rawQ &&
@@ -2128,6 +2164,9 @@ export class RoomManager {
     return {
       roomCode: room.roomCode,
       hostId: room.hostId,
+      questionSetId: room.questionSet.id,
+      questionSetName: room.questionSet.name,
+      questionSetCount: room.questionSet.questions.length,
       phase: room.phase,
       roundNumber: room.roundNumber,
       maxRounds: MATCH_CONFIG.MAX_ROUNDS,
