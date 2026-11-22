@@ -7,6 +7,7 @@ import { EffectsLayer } from './EffectsLayer.tsx'
 import { PlayerController } from './PlayerController.tsx'
 import { RivalAvatar } from './RivalAvatar.tsx'
 import { WeaponViewmodel } from './WeaponViewmodel.tsx'
+import { WorldEffectsLayer } from './WorldEffectsLayer.tsx'
 
 function createNeonGridTexture(): THREE.CanvasTexture {
   const size = 512
@@ -426,8 +427,9 @@ function ArenaWorld() {
       {screen === 'arena' &&
         remotePlayers.map((p) => <RivalAvatar key={p.id} player={p} />)}
 
-      {/* 3D Laser Tracers & Impact Sparks */}
+      {/* 3D Laser Tracers & Valorant-Style World Skill Effects */}
       {screen === 'arena' && <EffectsLayer />}
+      {screen === 'arena' && <WorldEffectsLayer />}
 
       {/* First-Person Weapon Viewmodel & FPS Controller */}
       <WeaponViewmodel />

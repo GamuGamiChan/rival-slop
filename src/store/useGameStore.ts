@@ -9,6 +9,7 @@ import type {
   PublicMathQuestion,
   RoomSnapshot,
   ShotEvent,
+  SkillCastPayload,
   Vec3,
   WeaponId,
 } from '../../shared/types.ts'
@@ -21,11 +22,19 @@ export interface RemoteTransform {
   yaw: number
   pitch: number
   hp: number
+  maxHp: number
   alive: boolean
   respawnAt: number | null
   weapon: WeaponId | null
   ammo: number
   reloadingUntil: number | null
+  skillQReadyAt: number
+  skillCReadyAt: number
+  ultPoints: number
+  overdriveUntil: number | null
+  overshieldUntil: number | null
+  blindedUntil: number | null
+  revealedUntil: number | null
   updatedAt: number
 }
 
@@ -46,7 +55,7 @@ export function saveSession(session: PersistedSession | null): void {
       sessionStorage.setItem(SESSION_KEY, JSON.stringify(session))
     }
   } catch {
-    // Ignore storage quota / privacy mode errors
+    // Ignore storage errors
   }
 }
 
@@ -102,29 +111,27 @@ export interface GameState {
   playerId: string | null
   sessionToken: string | null
   room: RoomSnapshot | null
-  clockOffsetMs: number // serverNow - Date.now()
+  clockOffsetMs: number
 
-  // High-frequency live transforms updated without forcing full HUD re-renders
   liveTransforms: Map<string, RemoteTransform>
   localPredictedPos: Vec3
   localYaw: number
   localPitch: number
-  localAmmoOverride: number | null
+  pendingSnapPos: Vec3 | null
   lastShotVisualAt: number
   isAdsZoom: boolean
 
-  // Gameplay overlays & feedback
   activeQuestion: PublicMathQuestion | null
   lastAnswerResult: AnswerResultPayload | null
   mathModalOpen: boolean
   weaponReveal: WeaponRevealState | null
+  lastSkillBanner: (SkillCastPayload & { receivedAt: number }) | null
   hitMarker: HitMarkerState | null
   lastDamageTaken: (DamageTakenPayload & { timestamp: number }) | null
   tracers: ActiveTracer[]
   recentKills: KillFeedItem[]
   matchSummary: MatchSummary | null
 
-  // Controls & UI
   pointerLocked: boolean
   pauseOpen: boolean
   scoreboardOpen: boolean
@@ -133,7 +140,6 @@ export interface GameState {
   errorMessage: string | null
   statusToast: string | null
 
-  // Actions
   setScreen: (screen: ScreenMode) => void
   setPlayerName: (name: string) => void
   setConnectionStatus: (status: ConnectionStatus) => void
@@ -150,8 +156,8 @@ export interface GameState {
   setAdsZoom: (zoom: boolean) => void
   triggerLocalShotVisual: () => void
   setLocalTransform: (pos: Vec3, yaw: number, pitch: number) => void
+  consumePendingSnap: () => Vec3 | null
 
-  // Server event handlers
   onRoomJoined: (playerId: string, sessionToken: string, room: RoomSnapshot) => void
   onRoomState: (room: RoomSnapshot) => void
   onPositionsSync: (
@@ -162,16 +168,25 @@ export interface GameState {
       yaw: number
       pitch: number
       hp: number
+      maxHp: number
       alive: boolean
       respawnAt: number | null
       weapon: WeaponId | null
       ammo: number
       reloadingUntil: number | null
+      skillQReadyAt: number
+      skillCReadyAt: number
+      ultPoints: number
+      overdriveUntil: number | null
+      overshieldUntil: number | null
+      blindedUntil: number | null
+      revealedUntil: number | null
     }>,
   ) => void
   onQuestionAssigned: (question: PublicMathQuestion) => void
   onAnswerResult: (result: AnswerResultPayload) => void
   onShotFired: (shot: ShotEvent) => void
+  onSkillCast: (cast: SkillCastPayload) => void
   onHitConfirmed: (hit: HitConfirmPayload) => void
   onDamageTaken: (damage: DamageTakenPayload) => void
   onKillEvent: (kill: KillFeedItem) => void
@@ -207,7 +222,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   localPredictedPos: { x: 0, y: 0, z: -26 },
   localYaw: Math.PI,
   localPitch: 0,
-  localAmmoOverride: null,
+  pendingSnapPos: null,
   lastShotVisualAt: 0,
   isAdsZoom: false,
 
@@ -215,6 +230,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   lastAnswerResult: null,
   mathModalOpen: false,
   weaponReveal: null,
+  lastSkillBanner: null,
   hitMarker: null,
   lastDamageTaken: null,
   tracers: [],
@@ -254,6 +270,13 @@ export const useGameStore = create<GameState>((set, get) => ({
     state.localYaw = localYaw
     state.localPitch = localPitch
   },
+  consumePendingSnap: () => {
+    const pos = get().pendingSnapPos
+    if (pos) {
+      get().pendingSnapPos = null
+    }
+    return pos
+  },
 
   onRoomJoined: (playerId, sessionToken, room) => {
     const me = room.players.find((p) => p.id === playerId)
@@ -265,11 +288,19 @@ export const useGameStore = create<GameState>((set, get) => ({
         yaw: p.yaw,
         pitch: p.pitch,
         hp: p.hp,
+        maxHp: p.maxHp,
         alive: p.alive,
         respawnAt: p.respawnAt,
         weapon: p.weapon,
         ammo: p.ammo,
         reloadingUntil: p.reloadingUntil,
+        skillQReadyAt: p.skillQReadyAt,
+        skillCReadyAt: p.skillCReadyAt,
+        ultPoints: p.ultPoints,
+        overdriveUntil: p.overdriveUntil,
+        overshieldUntil: p.overshieldUntil,
+        blindedUntil: p.blindedUntil,
+        revealedUntil: p.revealedUntil,
         updatedAt: now,
       })
     }
@@ -313,16 +344,23 @@ export const useGameStore = create<GameState>((set, get) => ({
         yaw: p.yaw,
         pitch: p.pitch,
         hp: p.hp,
+        maxHp: p.maxHp,
         alive: p.alive,
         respawnAt: p.respawnAt,
         weapon: p.weapon,
         ammo: p.ammo,
         reloadingUntil: p.reloadingUntil,
+        skillQReadyAt: p.skillQReadyAt,
+        skillCReadyAt: p.skillCReadyAt,
+        ultPoints: p.ultPoints,
+        overdriveUntil: p.overdriveUntil,
+        overshieldUntil: p.overshieldUntil,
+        blindedUntil: p.blindedUntil,
+        revealedUntil: p.revealedUntil,
         updatedAt: now,
       })
     }
 
-    // If local player just respawned or match started, snap local predicted position to spawn
     const prevMe = prevRoom?.players.find((p) => p.id === myId)
     const nextMe = room.players.find((p) => p.id === myId)
     let nextLocalPos = get().localPredictedPos
@@ -343,7 +381,6 @@ export const useGameStore = create<GameState>((set, get) => ({
       recentKills: room.killFeed,
       matchSummary: room.summary ?? get().matchSummary,
       clockOffsetMs: room.serverNow - Date.now(),
-      // Reset overlays cleanly when returning to lobby or finishing match
       mathModalOpen: room.phase === 'playing' ? get().mathModalOpen : false,
       activeQuestion: room.phase === 'playing' ? get().activeQuestion : null,
       pauseOpen: room.phase === 'playing' ? get().pauseOpen : false,
@@ -361,27 +398,47 @@ export const useGameStore = create<GameState>((set, get) => ({
         yaw: item.yaw,
         pitch: item.pitch,
         hp: item.hp,
+        maxHp: item.maxHp,
         alive: item.alive,
         respawnAt: item.respawnAt,
         weapon: item.weapon,
         ammo: item.ammo,
         reloadingUntil: item.reloadingUntil,
+        skillQReadyAt: item.skillQReadyAt,
+        skillCReadyAt: item.skillCReadyAt,
+        ultPoints: item.ultPoints,
+        overdriveUntil: item.overdriveUntil,
+        overshieldUntil: item.overshieldUntil,
+        blindedUntil: item.blindedUntil,
+        revealedUntil: item.revealedUntil,
         updatedAt: now,
       })
     }
 
-    // Keep local player's HUD stats (hp, ammo, alive, reloadingUntil, weapon) fresh in room snapshot
     if (state.room && state.playerId) {
       const mySync = positions.find((p) => p.id === state.playerId)
       const myCurrent = state.room.players.find((p) => p.id === state.playerId)
+      const anyRevealChanged = positions.some((s) => {
+        const cur = state.room?.players.find((p) => p.id === s.id)
+        return cur && cur.revealedUntil !== s.revealedUntil
+      })
+
       if (
-        mySync &&
-        myCurrent &&
-        (myCurrent.hp !== mySync.hp ||
-          myCurrent.ammo !== mySync.ammo ||
-          myCurrent.alive !== mySync.alive ||
-          myCurrent.weapon !== mySync.weapon ||
-          myCurrent.reloadingUntil !== mySync.reloadingUntil)
+        anyRevealChanged ||
+        (mySync &&
+          myCurrent &&
+          (myCurrent.hp !== mySync.hp ||
+            myCurrent.maxHp !== mySync.maxHp ||
+            myCurrent.ammo !== mySync.ammo ||
+            myCurrent.alive !== mySync.alive ||
+            myCurrent.weapon !== mySync.weapon ||
+            myCurrent.reloadingUntil !== mySync.reloadingUntil ||
+            myCurrent.skillQReadyAt !== mySync.skillQReadyAt ||
+            myCurrent.skillCReadyAt !== mySync.skillCReadyAt ||
+            myCurrent.ultPoints !== mySync.ultPoints ||
+            myCurrent.overdriveUntil !== mySync.overdriveUntil ||
+            myCurrent.overshieldUntil !== mySync.overshieldUntil ||
+            myCurrent.blindedUntil !== mySync.blindedUntil))
       ) {
         const updatedPlayers: PlayerPublicState[] = state.room.players.map((p) => {
           const sync = positions.find((s) => s.id === p.id)
@@ -389,11 +446,19 @@ export const useGameStore = create<GameState>((set, get) => ({
           return {
             ...p,
             hp: sync.hp,
+            maxHp: sync.maxHp,
             alive: sync.alive,
             respawnAt: sync.respawnAt,
             weapon: sync.weapon,
             ammo: sync.ammo,
             reloadingUntil: sync.reloadingUntil,
+            skillQReadyAt: sync.skillQReadyAt,
+            skillCReadyAt: sync.skillCReadyAt,
+            ultPoints: sync.ultPoints,
+            overdriveUntil: sync.overdriveUntil,
+            overshieldUntil: sync.overshieldUntil,
+            blindedUntil: sync.blindedUntil,
+            revealedUntil: sync.revealedUntil,
           }
         })
         set({
@@ -440,6 +505,20 @@ export const useGameStore = create<GameState>((set, get) => ({
     const kept = get().tracers.filter((t) => now - t.createdAt < 260)
     kept.push(nextTracer)
     set({ tracers: kept })
+  },
+
+  onSkillCast: (cast) => {
+    const state = get()
+    // Snap local FPS controller cleanly when server authorizes Tailwind Dash or Phase Blink
+    const snap =
+      cast.playerId === state.playerId && cast.newPosition
+        ? { ...cast.newPosition }
+        : state.pendingSnapPos
+
+    set({
+      pendingSnapPos: snap,
+      lastSkillBanner: { ...cast, receivedAt: Date.now() },
+    })
   },
 
   onHitConfirmed: (hit) => {
@@ -500,10 +579,12 @@ export const useGameStore = create<GameState>((set, get) => ({
       sessionToken: null,
       room: null,
       liveTransforms: new Map(),
+      pendingSnapPos: null,
       activeQuestion: null,
       lastAnswerResult: null,
       mathModalOpen: false,
       weaponReveal: null,
+      lastSkillBanner: null,
       hitMarker: null,
       lastDamageTaken: null,
       tracers: [],

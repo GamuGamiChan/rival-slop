@@ -7,7 +7,9 @@ class SoundEngine {
   private getContext(): AudioContext | null {
     if (useGameStore.getState().muted) return null
     if (typeof window === 'undefined') return null
-    const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+    const AudioCtx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
     if (!AudioCtx) return null
     if (!this.ctx) {
       this.ctx = new AudioCtx()
@@ -42,7 +44,7 @@ class SoundEngine {
     osc.stop(now + durationSec + 0.02)
   }
 
-  private playNoise(durationSec: number, filterFreq: number, volume: number): void {
+  private playNoise(durationSec: number, filterFreq: number, volume: number, delaySec = 0): void {
     const ctx = this.getContext()
     if (!ctx) return
     const bufferSize = Math.max(1, Math.floor(ctx.sampleRate * durationSec))
@@ -58,7 +60,7 @@ class SoundEngine {
     filter.type = 'bandpass'
     filter.frequency.value = filterFreq
     const gain = ctx.createGain()
-    const now = ctx.currentTime
+    const now = ctx.currentTime + delaySec
     gain.gain.setValueAtTime(volume, now)
     gain.gain.exponentialRampToValueAtTime(0.0008, now + durationSec)
     src.connect(filter)
@@ -74,18 +76,89 @@ class SoundEngine {
         this.playTone(920, 210, 0.09, 'sawtooth', 0.14 * scale)
         this.playNoise(0.055, 2200, 0.09 * scale)
         break
+      case 'revolver':
+        this.playTone(460, 72, 0.22, 'sawtooth', 0.24 * scale)
+        this.playTone(1240, 320, 0.12, 'triangle', 0.16 * scale)
+        this.playNoise(0.14, 1100, 0.22 * scale)
+        break
+      case 'smg':
+        this.playTone(1080, 310, 0.055, 'square', 0.095 * scale)
+        this.playNoise(0.04, 2400, 0.08 * scale)
+        break
       case 'rifle':
         this.playTone(680, 140, 0.075, 'square', 0.12 * scale)
         this.playNoise(0.05, 1600, 0.11 * scale)
+        break
+      case 'burst':
+        // Crisp 3-round staggered pulse burst
+        for (let i = 0; i < 3; i++) {
+          this.playTone(860 - i * 40, 180, 0.06, 'sawtooth', 0.12 * scale, i * 0.048)
+          this.playNoise(0.04, 1900, 0.09 * scale, i * 0.048)
+        }
         break
       case 'shotgun':
         this.playTone(220, 48, 0.22, 'sawtooth', 0.24 * scale)
         this.playNoise(0.18, 700, 0.24 * scale)
         break
+      case 'lmg':
+        this.playTone(420, 95, 0.085, 'sawtooth', 0.14 * scale)
+        this.playNoise(0.065, 1050, 0.14 * scale)
+        break
       case 'sniper':
         this.playTone(1550, 90, 0.32, 'sawtooth', 0.22 * scale)
         this.playTone(440, 110, 0.28, 'triangle', 0.18 * scale)
         this.playNoise(0.14, 3000, 0.16 * scale)
+        break
+    }
+  }
+
+  playSkillCast(skillId: string, scale = 1): void {
+    switch (skillId) {
+      case 'dash':
+        this.playTone(320, 1450, 0.16, 'sine', 0.16 * scale)
+        this.playNoise(0.14, 2800, 0.14 * scale)
+        break
+      case 'flash':
+        this.playTone(1850, 2900, 0.22, 'sine', 0.18 * scale)
+        this.playNoise(0.16, 4200, 0.14 * scale)
+        break
+      case 'overdrive':
+        this.playTone(260, 1320, 0.38, 'sawtooth', 0.16 * scale)
+        this.playTone(520, 1760, 0.32, 'triangle', 0.14 * scale, 0.08)
+        break
+      case 'heal':
+        this.playTone(520, 780, 0.16, 'sine', 0.14 * scale, 0)
+        this.playTone(780, 1170, 0.22, 'sine', 0.14 * scale, 0.1)
+        break
+      case 'barrier':
+        this.playTone(140, 480, 0.28, 'triangle', 0.2 * scale)
+        this.playNoise(0.2, 900, 0.12 * scale)
+        break
+      case 'overshield':
+        this.playTone(180, 660, 0.34, 'sawtooth', 0.16 * scale)
+        this.playTone(360, 990, 0.32, 'sine', 0.16 * scale, 0.09)
+        break
+      case 'smoke':
+        this.playNoise(0.38, 650, 0.18 * scale)
+        this.playTone(240, 110, 0.3, 'sine', 0.12 * scale)
+        break
+      case 'blink':
+        this.playTone(980, 220, 0.14, 'sine', 0.16 * scale)
+        this.playTone(220, 1240, 0.15, 'triangle', 0.14 * scale, 0.08)
+        break
+      case 'orbital':
+        this.playTone(1200, 90, 0.75, 'sawtooth', 0.2 * scale)
+        this.playTone(160, 44, 0.6, 'sawtooth', 0.24 * scale, 0.85)
+        this.playNoise(0.45, 500, 0.22 * scale, 0.85)
+        break
+      case 'recon':
+        this.playTone(720, 1480, 0.24, 'sine', 0.16 * scale, 0)
+        this.playTone(1480, 720, 0.26, 'sine', 0.12 * scale, 0.22)
+        break
+      case 'cluster':
+      case 'barrage':
+        this.playTone(360, 45, 0.36, 'sawtooth', 0.24 * scale)
+        this.playNoise(0.32, 550, 0.26 * scale)
         break
     }
   }

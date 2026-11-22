@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import { AGENT_IDS, AGENTS, ULT_MAX_POINTS } from '../shared/agents.ts'
 import {
   clampPositionToArena,
   getSpawnForTeam,
@@ -6,11 +7,13 @@ import {
   PLAYER_DIMENSIONS,
   raycastArenaObstacles,
   raycastPlayerHitbox,
+  type ArenaBox,
 } from '../shared/arena.ts'
 import { pickNextQuestion, QUESTION_BY_ID, toPublicQuestion } from '../shared/questions.ts'
 import {
   MATCH_CONFIG,
   SCORING,
+  type AgentId,
   type AnswerResultPayload,
   type DamageTakenPayload,
   type Difficulty,
@@ -23,9 +26,12 @@ import {
   type RoomSnapshot,
   type ScoreboardEntry,
   type ShotEvent,
+  type SkillCastPayload,
+  type SkillSlot,
   type Team,
   type Vec3,
   type WeaponId,
+  type WorldEffect,
 } from '../shared/types.ts'
 import { rollRandomWeapon, WEAPONS } from '../shared/weapons.ts'
 
@@ -48,24 +54,43 @@ export interface InternalRoom {
   matchEndsAt: number | null
   players: Map<string, InternalPlayer>
   killFeed: KillFeedItem[]
+  worldEffects: WorldEffect[]
   summary: MatchSummary | null
   spawnCounter: { blue: number; red: number }
 }
 
+export interface CombatHitRecord {
+  victimId: string
+  confirm: HitConfirmPayload
+  damageTaken: DamageTakenPayload
+  killEvent?: KillFeedItem
+}
+
 export interface ShootOutcome {
   shot: ShotEvent
-  hits: Array<{
-    victimId: string
-    confirm: HitConfirmPayload
-    damageTaken: DamageTakenPayload
-    killEvent?: KillFeedItem
-  }>
+  hits: CombatHitRecord[]
+}
+
+export interface SkillOutcome {
+  cast: SkillCastPayload
+  hits: CombatHitRecord[]
+  scoreboardChanged: boolean
+  roomStateChanged: boolean
 }
 
 export interface TickTransition {
   roomCode: string
-  type: 'PHASE_PLAYING' | 'RESPAWNED' | 'RELOADED' | 'MATCH_FINISHED' | 'ROOM_CLEANED'
+  type:
+    | 'PHASE_PLAYING'
+    | 'RESPAWNED'
+    | 'RELOADED'
+    | 'EFFECTS_UPDATED'
+    | 'ORBITAL_DETONATED'
+    | 'MATCH_FINISHED'
+    | 'ROOM_CLEANED'
   summary?: MatchSummary
+  hits?: CombatHitRecord[]
+  attackerId?: string
 }
 
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -128,6 +153,103 @@ export class RoomManager {
     return this.rooms.get(roomCode.trim().toUpperCase())
   }
 
+  private getActiveBarrierBoxes(room: InternalRoom, now: number): ArenaBox[] {
+    const boxes: ArenaBox[] = []
+    for (const eff of room.worldEffects) {
+      if (eff.kind === 'barrier' && eff.box && eff.expiresAt > now) {
+        boxes.push({
+          id: eff.id,
+          minX: eff.box.minX,
+          maxX: eff.box.maxX,
+          minY: eff.box.minY,
+          maxY: eff.box.maxY,
+          minZ: eff.box.minZ,
+          maxZ: eff.box.maxZ,
+          kind: 'glass',
+          accent: eff.ownerTeam,
+        })
+      }
+    }
+    return boxes
+  }
+
+  private applyDamageAndKill(
+    room: InternalRoom,
+    attacker: InternalPlayer,
+    victim: InternalPlayer,
+    damage: number,
+    headshot: boolean,
+    sourceWeapon: WeaponId | 'skill',
+    now: number,
+    skillLabel?: string,
+  ): CombatHitRecord {
+    victim.hp = Math.max(0, victim.hp - damage)
+    const killed = victim.hp <= 0
+    let pointsAwarded = 0
+    let killEvent: KillFeedItem | undefined
+
+    if (killed) {
+      victim.alive = false
+      victim.respawnAt = now + MATCH_CONFIG.RESPAWN_MS
+      victim.deaths += 1
+      victim.streak = 0
+      victim.weapon = null
+      victim.ammo = 0
+      victim.maxAmmo = 0
+      victim.reloadingUntil = null
+      victim.maxHp = MATCH_CONFIG.MAX_HP
+      victim.overshieldUntil = null
+      victim.overdriveUntil = null
+      victim.blindedUntil = null
+
+      attacker.kills += 1
+      attacker.streak += 1
+      attacker.ultPoints = Math.min(ULT_MAX_POINTS, attacker.ultPoints + 1)
+      if (headshot) attacker.headshots += 1
+      pointsAwarded = SCORING.KILL + (headshot ? SCORING.HEADSHOT_BONUS : 0)
+      attacker.totalScore += pointsAwarded
+
+      killEvent = {
+        id: crypto.randomUUID(),
+        killerId: attacker.id,
+        killerName: attacker.name,
+        killerTeam: attacker.team,
+        victimId: victim.id,
+        victimName: victim.name,
+        victimTeam: victim.team,
+        weapon: sourceWeapon,
+        skillLabel,
+        headshot,
+        pointsAwarded,
+        timestamp: now,
+      }
+      room.killFeed.unshift(killEvent)
+      if (room.killFeed.length > 8) room.killFeed.pop()
+    }
+
+    return {
+      victimId: victim.id,
+      confirm: {
+        victimId: victim.id,
+        victimName: victim.name,
+        damage,
+        headshot,
+        killed,
+        pointsAwarded,
+      },
+      damageTaken: {
+        attackerId: attacker.id,
+        attackerName: attacker.name,
+        weapon: sourceWeapon,
+        damage,
+        headshot,
+        remainingHp: victim.hp,
+        killed,
+      },
+      killEvent,
+    }
+  }
+
   createRoom(playerName: string): {
     roomCode: string
     playerId: string
@@ -145,6 +267,7 @@ export class RoomManager {
       sessionToken,
       name: sanitizeName(playerName),
       team: 'blue',
+      agent: 'vortex',
       ready: true,
       connected: true,
       isHost: true,
@@ -159,6 +282,14 @@ export class RoomManager {
       ammo: 0,
       maxAmmo: 0,
       reloadingUntil: null,
+      skillQReadyAt: 0,
+      skillCReadyAt: 0,
+      ultPoints: 0,
+      ultMax: ULT_MAX_POINTS,
+      overdriveUntil: null,
+      overshieldUntil: null,
+      blindedUntil: null,
+      revealedUntil: null,
       kills: 0,
       deaths: 0,
       headshots: 0,
@@ -183,6 +314,7 @@ export class RoomManager {
       matchEndsAt: null,
       players: new Map([[playerId, host]]),
       killFeed: [],
+      worldEffects: [],
       summary: null,
       spawnCounter: { blue: 1, red: 0 },
     }
@@ -214,7 +346,6 @@ export class RoomManager {
       return { ok: false, code: 'MATCH_FINISHED', message: 'เกมในห้องนี้จบลงแล้ว กรุณารอห้องรีเซ็ตหรือสร้างห้องใหม่' }
     }
 
-    // Balance teams automatically (Blue vs Red)
     let blueCount = 0
     let redCount = 0
     for (const p of room.players.values()) {
@@ -223,6 +354,7 @@ export class RoomManager {
     }
     const team: Team = blueCount <= redCount ? 'blue' : 'red'
     const spawn = getSpawnForTeam(team, room.spawnCounter[team]++)
+    const defaultAgent = AGENT_IDS[room.players.size % AGENT_IDS.length]
 
     const now = this.nowFn()
     const playerId = crypto.randomUUID()
@@ -233,6 +365,7 @@ export class RoomManager {
       sessionToken,
       name: sanitizeName(playerName),
       team,
+      agent: defaultAgent,
       ready: false,
       connected: true,
       isHost: false,
@@ -247,6 +380,14 @@ export class RoomManager {
       ammo: 0,
       maxAmmo: 0,
       reloadingUntil: null,
+      skillQReadyAt: 0,
+      skillCReadyAt: 0,
+      ultPoints: 0,
+      ultMax: ULT_MAX_POINTS,
+      overdriveUntil: null,
+      overshieldUntil: null,
+      blindedUntil: null,
+      revealedUntil: null,
       kills: 0,
       deaths: 0,
       headshots: 0,
@@ -287,7 +428,6 @@ export class RoomManager {
     if (!player) {
       return { ok: false, code: 'PLAYER_NOT_FOUND', message: 'ไม่พบข้อมูลผู้เล่นในห้องนี้' }
     }
-    // Timing-safe session token comparison to prevent spoofing
     const a = Buffer.from(player.sessionToken)
     const b = Buffer.from(sessionToken || '')
     if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
@@ -316,7 +456,6 @@ export class RoomManager {
       player.disconnectedAt = this.nowFn()
     }
 
-    // Reassign host if host left or disconnected
     if (room.hostId === playerId) {
       const nextHost = Array.from(room.players.values()).find((p) => p.connected)
       if (nextHost) {
@@ -327,7 +466,6 @@ export class RoomManager {
       }
     }
 
-    // Remove completely empty rooms immediately
     const anyConnected = Array.from(room.players.values()).some((p) => p.connected)
     if (room.players.size === 0 || (!anyConnected && room.phase === 'lobby')) {
       this.rooms.delete(roomCode)
@@ -385,6 +523,26 @@ export class RoomManager {
     return { ok: true, snapshot: this.buildSnapshot(room) }
   }
 
+  selectAgent(
+    roomCode: string,
+    playerId: string,
+    agent: AgentId,
+  ): { ok: true; snapshot: RoomSnapshot } | { ok: false; code: string; message: string } {
+    const room = this.rooms.get(roomCode)
+    if (!room) return { ok: false, code: 'ROOM_NOT_FOUND', message: 'ไม่พบห้อง' }
+    if (room.phase !== 'lobby') {
+      return { ok: false, code: 'INVALID_PHASE', message: 'เลือก Agent ได้เฉพาะใน Lobby เท่านั้น' }
+    }
+    if (!AGENT_IDS.includes(agent)) {
+      return { ok: false, code: 'INVALID_AGENT', message: 'ไม่พบ Agent ที่เลือก' }
+    }
+    const player = room.players.get(playerId)
+    if (!player) return { ok: false, code: 'PLAYER_NOT_FOUND', message: 'ไม่พบผู้เล่น' }
+
+    player.agent = agent
+    return { ok: true, snapshot: this.buildSnapshot(room) }
+  }
+
   startMatch(
     roomCode: string,
     requesterId: string,
@@ -407,11 +565,9 @@ export class RoomManager {
       }
     }
 
-    // Ensure at least 1 player per team if everyone stacked one side
     const bluePlayers = connectedPlayers.filter((p) => p.team === 'blue')
     const redPlayers = connectedPlayers.filter((p) => p.team === 'red')
     if (bluePlayers.length === 0 || redPlayers.length === 0) {
-      // Auto-balance half to the empty team so players always have rivals to fight
       const half = Math.ceil(connectedPlayers.length / 2)
       connectedPlayers.forEach((p, idx) => {
         p.team = idx < half ? 'blue' : 'red'
@@ -424,6 +580,7 @@ export class RoomManager {
     room.matchStartedAt = null
     room.matchEndsAt = null
     room.killFeed = []
+    room.worldEffects = []
     room.summary = null
     room.spawnCounter = { blue: 0, red: 0 }
 
@@ -433,12 +590,20 @@ export class RoomManager {
       p.yaw = spawn.yaw
       p.pitch = 0
       p.hp = MATCH_CONFIG.MAX_HP
+      p.maxHp = MATCH_CONFIG.MAX_HP
       p.alive = true
       p.respawnAt = null
       p.weapon = null
       p.ammo = 0
       p.maxAmmo = 0
       p.reloadingUntil = null
+      p.skillQReadyAt = 0
+      p.skillCReadyAt = 0
+      p.ultPoints = 0
+      p.overdriveUntil = null
+      p.overshieldUntil = null
+      p.blindedUntil = null
+      p.revealedUntil = null
       p.kills = 0
       p.deaths = 0
       p.headshots = 0
@@ -467,7 +632,6 @@ export class RoomManager {
       return { ok: false, code: 'INVALID_PHASE', message: 'สามารถกลับ Lobby ได้หลังจบเกมเท่านั้น' }
     }
 
-    // Remove disconnected players when returning to lobby
     for (const [id, p] of room.players.entries()) {
       if (!p.connected) {
         room.players.delete(id)
@@ -477,9 +641,15 @@ export class RoomManager {
         p.ammo = 0
         p.maxAmmo = 0
         p.hp = MATCH_CONFIG.MAX_HP
+        p.maxHp = MATCH_CONFIG.MAX_HP
         p.alive = true
         p.respawnAt = null
         p.activeQuestionId = null
+        p.overdriveUntil = null
+        p.overshieldUntil = null
+        p.blindedUntil = null
+        p.revealedUntil = null
+        p.ultPoints = 0
       }
     }
 
@@ -489,6 +659,7 @@ export class RoomManager {
     room.matchEndsAt = null
     room.summary = null
     room.killFeed = []
+    room.worldEffects = []
 
     return { ok: true, snapshot: this.buildSnapshot(room) }
   }
@@ -510,7 +681,6 @@ export class RoomManager {
     const now = this.nowFn()
     const dtSec = Math.max(0.016, Math.min(1.0, (now - player.lastMoveAt) / 1000))
 
-    // During countdown players can look around but remain at spawn
     if (room.phase === 'countdown') {
       player.yaw = yaw
       player.pitch = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, pitch))
@@ -518,12 +688,12 @@ export class RoomManager {
       return true
     }
 
-    // Anti-teleport speed check (generous allowance for jump pads & lag spikes: max 28 m/s)
+    // Generous speed tolerance to accommodate Jump Pads, Overdrive, and Dash
     const dx = clamped.x - player.position.x
     const dy = clamped.y - player.position.y
     const dz = clamped.z - player.position.z
     const dist = Math.hypot(dx, dy, dz)
-    const maxAllowedDist = Math.max(4.5, 28 * dtSec)
+    const maxAllowedDist = Math.max(5.5, 34 * dtSec)
 
     if (dist <= maxAllowedDist) {
       player.position = clamped
@@ -557,7 +727,6 @@ export class RoomManager {
       return { ok: false, code: 'PLAYER_NOT_FOUND', message: 'ไม่พบผู้เล่น' }
     }
 
-    // If player already has a pending active question, return the same one (prevents cherry-picking)
     if (player.activeQuestionId && !player.attemptedQuestionIds.has(player.activeQuestionId)) {
       const existing = QUESTION_BY_ID.get(player.activeQuestionId)
       if (existing) {
@@ -570,7 +739,7 @@ export class RoomManager {
       return {
         ok: false,
         code: 'NO_MORE_QUESTIONS',
-        message: 'คุณตอบโจทย์ครบทั้งคลัง 48 ข้อแล้ว! ใช้ทักษะการยิงเก็บแต้มต่อเลย',
+        message: 'คุณตอบโจทย์ครบทั้งคลัง 48 ข้อแล้ว! ใช้ทักษะการยิงและสกิลเก็บแต้มต่อเลย',
       }
     }
 
@@ -599,7 +768,6 @@ export class RoomManager {
       return { ok: false, code: 'INVALID_CHOICE', message: 'ตัวเลือกคำตอบไม่ถูกต้อง' }
     }
 
-    // Strict Anti-Farming Security Check 1: Prevent duplicate question submission
     if (player.attemptedQuestionIds.has(questionId)) {
       return {
         ok: false,
@@ -608,7 +776,6 @@ export class RoomManager {
       }
     }
 
-    // Strict Anti-Farming Security Check 2: Only allow answering the question assigned by server
     if (player.activeQuestionId !== questionId) {
       return {
         ok: false,
@@ -622,7 +789,6 @@ export class RoomManager {
       return { ok: false, code: 'QUESTION_NOT_FOUND', message: 'ไม่พบคำถามในระบบ' }
     }
 
-    // Consume question atomically
     player.attemptedQuestionIds.add(questionId)
     player.activeQuestionId = null
 
@@ -634,6 +800,8 @@ export class RoomManager {
       pointsAwarded = SCORING.MATH_CORRECT
       player.correctAnswers += 1
       player.totalScore += pointsAwarded
+      // Answering math correctly charges your Valorant-style Ultimate (+1 ult orb)!
+      player.ultPoints = Math.min(ULT_MAX_POINTS, player.ultPoints + 1)
 
       awardedWeapon = rollRandomWeapon(question.difficulty, player.weapon, this.rngFn)
       const spec = WEAPONS[awardedWeapon]
@@ -686,6 +854,373 @@ export class RoomManager {
     return { ok: true, reloadingUntil: player.reloadingUntil }
   }
 
+  useSkill(
+    roomCode: string,
+    playerId: string,
+    slot: SkillSlot,
+    origin: Vec3,
+    rawDirection: Vec3,
+  ): { ok: true; outcome: SkillOutcome } | { ok: false; code: string; message: string } {
+    const room = this.rooms.get(roomCode)
+    if (!room || room.phase !== 'playing') {
+      return { ok: false, code: 'MATCH_NOT_ACTIVE', message: 'ใช้สกิลได้เฉพาะขณะแข่งขันเท่านั้น' }
+    }
+    const player = room.players.get(playerId)
+    if (!player || !player.connected || !player.alive) {
+      return { ok: false, code: 'CANNOT_CAST', message: 'ผู้เล่นไม่สามารถใช้สกิลได้ในขณะนี้' }
+    }
+    if (slot !== 'Q' && slot !== 'C' && slot !== 'X') {
+      return { ok: false, code: 'INVALID_SKILL', message: 'ช่องสกิลไม่ถูกต้อง' }
+    }
+    if (!isFiniteVec3(origin) || !isFiniteVec3(rawDirection)) {
+      return { ok: false, code: 'INVALID_VECTOR', message: 'ทิศทางสกิลไม่ถูกต้อง' }
+    }
+
+    const now = this.nowFn()
+    const agentSpec = AGENTS[player.agent]
+    const skillSpec = agentSpec.skills[slot]
+
+    // Server-authoritative cooldown / ultimate charge validation
+    if (slot === 'Q') {
+      if (now < player.skillQReadyAt) {
+        return { ok: false, code: 'SKILL_COOLDOWN', message: `${skillSpec.name} ยังติดคูลดาวน์` }
+      }
+      player.skillQReadyAt = now + skillSpec.cooldownSec * 1000
+    } else if (slot === 'C') {
+      if (now < player.skillCReadyAt) {
+        return { ok: false, code: 'SKILL_COOLDOWN', message: `${skillSpec.name} ยังติดคูลดาวน์` }
+      }
+      player.skillCReadyAt = now + skillSpec.cooldownSec * 1000
+    } else {
+      if (player.ultPoints < ULT_MAX_POINTS) {
+        return {
+          ok: false,
+          code: 'ULT_NOT_READY',
+          message: `Ultimate ต้องใช้ ${ULT_MAX_POINTS} แต้ม (ตอบคณิตถูกหรือ Kill เพื่อสะสม)`,
+        }
+      }
+      player.ultPoints = 0
+    }
+
+    const authEye: Vec3 = {
+      x: player.position.x,
+      y: player.position.y + PLAYER_DIMENSIONS.eyeHeight,
+      z: player.position.z,
+    }
+    const castOrigin =
+      Math.hypot(origin.x - authEye.x, origin.y - authEye.y, origin.z - authEye.z) <= 2.4
+        ? origin
+        : authEye
+    const dir = normalizeVec3(rawDirection)
+    const barriers = this.getActiveBarrierBoxes(room, now)
+
+    const hits: CombatHitRecord[] = []
+    let scoreboardChanged = false
+    let roomStateChanged = true
+    let targetPoint: Vec3 = { ...player.position }
+    let newPosition: Vec3 | undefined
+
+    switch (skillSpec.id) {
+      // ---------------- VORTEX (DUELIST) ----------------
+      case 'dash': {
+        const flatDir = normalizeVec3({ x: dir.x, y: 0, z: dir.z })
+        const clearDist = raycastArenaObstacles(
+          { x: player.position.x, y: player.position.y + 0.9, z: player.position.z },
+          flatDir,
+          9.0,
+          barriers,
+        )
+        const travel = Math.max(0, Math.min(8.5, clearDist - 0.85))
+        const dest = clampPositionToArena({
+          x: player.position.x + flatDir.x * travel,
+          y: player.position.y,
+          z: player.position.z + flatDir.z * travel,
+        })
+        player.position = dest
+        player.lastMoveAt = now
+        newPosition = dest
+        targetPoint = dest
+        break
+      }
+
+      case 'flash': {
+        const hitDist = raycastArenaObstacles(castOrigin, dir, 22, barriers)
+        const travel = Math.max(2, hitDist - 0.8)
+        targetPoint = clampPositionToArena({
+          x: castOrigin.x + dir.x * travel,
+          y: Math.max(1.2, castOrigin.y + dir.y * travel),
+          z: castOrigin.z + dir.z * travel,
+        })
+        room.worldEffects.push({
+          id: crypto.randomUUID(),
+          kind: 'flash',
+          ownerId: player.id,
+          ownerTeam: player.team,
+          position: targetPoint,
+          radius: 13.5,
+          createdAt: now,
+          expiresAt: now + 950,
+          color: '#7ef9ff',
+        })
+        for (const enemy of room.players.values()) {
+          if (enemy.team === player.team || !enemy.alive || !enemy.connected) continue
+          const d = Math.hypot(
+            enemy.position.x - targetPoint.x,
+            enemy.position.y + 1.4 - targetPoint.y,
+            enemy.position.z - targetPoint.z,
+          )
+          if (d <= 13.5) {
+            enemy.blindedUntil = now + 2200
+          }
+        }
+        break
+      }
+
+      case 'overdrive': {
+        player.overdriveUntil = now + 8000
+        if (player.weapon) {
+          player.ammo = WEAPONS[player.weapon].magSize
+          player.reloadingUntil = null
+        }
+        targetPoint = { ...player.position }
+        break
+      }
+
+      // ---------------- AEGIS (SENTINEL) ----------------
+      case 'heal': {
+        player.hp = Math.min(player.maxHp, player.hp + 45)
+        targetPoint = { ...player.position }
+        break
+      }
+
+      case 'barrier': {
+        const flatDir = normalizeVec3({ x: dir.x, y: 0, z: dir.z })
+        const center = clampPositionToArena({
+          x: player.position.x + flatDir.x * 3.6,
+          y: player.position.y,
+          z: player.position.z + flatDir.z * 3.6,
+        })
+        // Snap barrier orientation perpendicular to facing axis (clean AABB for 100% shared collision)
+        const wideAlongX = Math.abs(flatDir.z) >= Math.abs(flatDir.x)
+        const halfX = wideAlongX ? 2.6 : 0.42
+        const halfZ = wideAlongX ? 0.42 : 2.6
+        const wallHeight = 3.2
+        targetPoint = center
+        room.worldEffects.push({
+          id: crypto.randomUUID(),
+          kind: 'barrier',
+          ownerId: player.id,
+          ownerTeam: player.team,
+          position: { x: center.x, y: center.y + wallHeight / 2, z: center.z },
+          radius: 2.6,
+          box: {
+            minX: center.x - halfX,
+            maxX: center.x + halfX,
+            minY: center.y,
+            maxY: center.y + wallHeight,
+            minZ: center.z - halfZ,
+            maxZ: center.z + halfZ,
+          },
+          createdAt: now,
+          expiresAt: now + 12_000,
+          color: '#10f59b',
+        })
+        break
+      }
+
+      case 'overshield': {
+        player.maxHp = 175
+        player.hp = 175
+        player.overshieldUntil = now + 10_000
+        if (player.weapon) {
+          player.ammo = WEAPONS[player.weapon].magSize
+          player.reloadingUntil = null
+        }
+        targetPoint = { ...player.position }
+        break
+      }
+
+      // ---------------- PHANTOM (CONTROLLER) ----------------
+      case 'smoke': {
+        const hitDist = raycastArenaObstacles(castOrigin, dir, 26, barriers)
+        const travel = Math.max(3, hitDist - 0.5)
+        targetPoint = clampPositionToArena({
+          x: castOrigin.x + dir.x * travel,
+          y: Math.max(0.2, castOrigin.y + dir.y * travel),
+          z: castOrigin.z + dir.z * travel,
+        })
+        room.worldEffects.push({
+          id: crypto.randomUUID(),
+          kind: 'smoke',
+          ownerId: player.id,
+          ownerTeam: player.team,
+          position: { x: targetPoint.x, y: Math.min(3.5, targetPoint.y + 1.6), z: targetPoint.z },
+          radius: 4.6,
+          createdAt: now,
+          expiresAt: now + 10_000,
+          color: '#a855f7',
+        })
+        break
+      }
+
+      case 'blink': {
+        const flatDir = normalizeVec3({ x: dir.x, y: 0, z: dir.z })
+        const clearDist = raycastArenaObstacles(
+          { x: player.position.x, y: player.position.y + 0.9, z: player.position.z },
+          flatDir,
+          10.8,
+          barriers,
+        )
+        const travel = Math.max(0, Math.min(10.0, clearDist - 0.9))
+        const dest = clampPositionToArena({
+          x: player.position.x + flatDir.x * travel,
+          y: player.position.y,
+          z: player.position.z + flatDir.z * travel,
+        })
+        player.position = dest
+        player.lastMoveAt = now
+        newPosition = dest
+        targetPoint = dest
+        break
+      }
+
+      case 'orbital': {
+        const hitDist = raycastArenaObstacles(castOrigin, dir, 34, [])
+        targetPoint = clampPositionToArena({
+          x: castOrigin.x + dir.x * hitDist,
+          y: 0,
+          z: castOrigin.z + dir.z * hitDist,
+        })
+        room.worldEffects.push({
+          id: crypto.randomUUID(),
+          kind: 'orbital',
+          ownerId: player.id,
+          ownerTeam: player.team,
+          position: targetPoint,
+          radius: 5.4,
+          createdAt: now,
+          detonateAt: now + 900,
+          detonated: false,
+          expiresAt: now + 2600,
+          color: '#e879f9',
+        })
+        break
+      }
+
+      // ---------------- PULSE (INITIATOR) ----------------
+      case 'recon': {
+        targetPoint = { x: player.position.x, y: player.position.y + 1.2, z: player.position.z }
+        room.worldEffects.push({
+          id: crypto.randomUUID(),
+          kind: 'sonar',
+          ownerId: player.id,
+          ownerTeam: player.team,
+          position: targetPoint,
+          radius: 30,
+          createdAt: now,
+          expiresAt: now + 2200,
+          color: '#fb923c',
+        })
+        for (const enemy of room.players.values()) {
+          if (enemy.team === player.team || !enemy.alive || !enemy.connected) continue
+          const d = Math.hypot(
+            enemy.position.x - targetPoint.x,
+            enemy.position.z - targetPoint.z,
+          )
+          if (d <= 32) {
+            enemy.revealedUntil = now + 5500
+          }
+        }
+        break
+      }
+
+      case 'cluster':
+      case 'barrage': {
+        const isUlt = skillSpec.id === 'barrage'
+        const maxRange = isUlt ? 38 : 28
+        const blastRadius = isUlt ? 6.2 : 5.0
+        const blastDamage = isUlt ? 120 : 55
+        const wallDist = raycastArenaObstacles(castOrigin, dir, maxRange, barriers)
+
+        // Check direct enemy hit along flight path too
+        let impactDist = wallDist
+        for (const enemy of room.players.values()) {
+          if (enemy.team === player.team || !enemy.alive || !enemy.connected) continue
+          const hit = raycastPlayerHitbox(castOrigin, dir, enemy.position, impactDist)
+          if (hit && hit.distance < impactDist) {
+            impactDist = hit.distance
+          }
+        }
+
+        targetPoint = clampPositionToArena({
+          x: castOrigin.x + dir.x * impactDist,
+          y: Math.max(0.4, castOrigin.y + dir.y * impactDist),
+          z: castOrigin.z + dir.z * impactDist,
+        })
+
+        room.worldEffects.push({
+          id: crypto.randomUUID(),
+          kind: 'explosion',
+          ownerId: player.id,
+          ownerTeam: player.team,
+          position: targetPoint,
+          radius: blastRadius,
+          createdAt: now,
+          expiresAt: now + (isUlt ? 1400 : 1050),
+          color: isUlt ? '#fbbf24' : '#fb923c',
+        })
+
+        for (const enemy of room.players.values()) {
+          if (enemy.team === player.team || !enemy.alive || !enemy.connected) continue
+          const d = Math.hypot(
+            enemy.position.x - targetPoint.x,
+            enemy.position.y + 1.0 - targetPoint.y,
+            enemy.position.z - targetPoint.z,
+          )
+          if (d <= blastRadius) {
+            const record = this.applyDamageAndKill(
+              room,
+              player,
+              enemy,
+              blastDamage,
+              false,
+              'skill',
+              now,
+              skillSpec.name,
+            )
+            hits.push(record)
+            if (record.confirm.killed) scoreboardChanged = true
+          }
+        }
+        break
+      }
+
+      default:
+        roomStateChanged = false
+        break
+    }
+
+    const cast: SkillCastPayload = {
+      id: crypto.randomUUID(),
+      playerId: player.id,
+      playerName: player.name,
+      team: player.team,
+      agent: player.agent,
+      slot,
+      skillId: skillSpec.id,
+      skillName: skillSpec.name,
+      origin: castOrigin,
+      target: targetPoint,
+      newPosition,
+      timestamp: now,
+    }
+
+    return {
+      ok: true,
+      outcome: { cast, hits, scoreboardChanged, roomStateChanged },
+    }
+  }
+
   shoot(
     roomCode: string,
     shooterId: string,
@@ -709,8 +1244,10 @@ export class RoomManager {
 
     const now = this.nowFn()
     const spec = WEAPONS[shooter.weapon]
+    const overdriveActive = Boolean(shooter.overdriveUntil && now < shooter.overdriveUntil)
+    const effectiveFireRateMs = overdriveActive ? Math.floor(spec.fireRateMs * 0.65) : spec.fireRateMs
+    const damageMult = overdriveActive ? 1.25 : 1.0
 
-    // Finish reload if elapsed
     if (shooter.reloadingUntil !== null) {
       if (now >= shooter.reloadingUntil) {
         shooter.ammo = spec.magSize
@@ -724,12 +1261,10 @@ export class RoomManager {
       return { ok: false, code: 'OUT_OF_AMMO', message: 'กระสุนหมด กด R เพื่อรีโหลด' }
     }
 
-    // Server-side Fire Rate Enforcement (20ms jitter tolerance)
-    if (now - shooter.lastShotAt < spec.fireRateMs - 20) {
+    if (now - shooter.lastShotAt < effectiveFireRateMs - 20) {
       return { ok: false, code: 'FIRE_RATE_LIMIT', message: 'ยิงเร็วเกินขีดจำกัดของอาวุธ' }
     }
 
-    // Validate origin is near shooter's authoritative eye position (anti-teleport shoot)
     const authEye: Vec3 = {
       x: shooter.position.x,
       y: shooter.position.y + PLAYER_DIMENSIONS.eyeHeight,
@@ -742,18 +1277,22 @@ export class RoomManager {
     )
     const rayOrigin = originDelta <= 2.4 ? origin : authEye
     const baseDir = normalizeVec3(rawDirection)
+    const barriers = this.getActiveBarrierBoxes(room, now)
 
-    shooter.ammo -= 1
+    const ammoCost = spec.id === 'burst' ? Math.min(shooter.ammo, 3) : 1
+    const shotPellets = spec.id === 'burst' ? ammoCost : spec.pellets
+
+    shooter.ammo -= ammoCost
     shooter.lastShotAt = now
 
     const endpoints: Vec3[] = []
     const damageAccumulator = new Map<string, { damage: number; headshot: boolean }>()
 
-    for (let pellet = 0; pellet < spec.pellets; pellet++) {
+    for (let pellet = 0; pellet < shotPellets; pellet++) {
       let dir = baseDir
-      if (spec.pellets > 1 && spec.spreadRad > 0) {
-        const angle = (pellet / spec.pellets) * Math.PI * 2 + this.rngFn() * 0.5
-        const mag = (0.35 + this.rngFn() * 0.65) * spec.spreadRad
+      if (shotPellets > 1 && spec.spreadRad > 0) {
+        const angle = (pellet / shotPellets) * Math.PI * 2 + this.rngFn() * 0.5
+        const mag = (0.3 + this.rngFn() * 0.7) * spec.spreadRad
         dir = normalizeVec3({
           x: baseDir.x + Math.cos(angle) * mag,
           y: baseDir.y + Math.sin(angle) * mag * 0.75,
@@ -761,12 +1300,12 @@ export class RoomManager {
         })
       }
 
-      const wallDist = raycastArenaObstacles(rayOrigin, dir, spec.range)
+      const wallDist = raycastArenaObstacles(rayOrigin, dir, spec.range, barriers)
       let closestTarget: { player: InternalPlayer; distance: number; headshot: boolean } | null = null
 
       for (const candidate of room.players.values()) {
         if (candidate.id === shooter.id) continue
-        if (candidate.team === shooter.team) continue // No friendly fire
+        if (candidate.team === shooter.team) continue
         if (!candidate.alive || !candidate.connected) continue
 
         const hit = raycastPlayerHitbox(rayOrigin, dir, candidate.position, wallDist)
@@ -781,7 +1320,8 @@ export class RoomManager {
           y: rayOrigin.y + dir.y * closestTarget.distance,
           z: rayOrigin.z + dir.z * closestTarget.distance,
         })
-        const dmg = closestTarget.headshot ? spec.headshotDamage : spec.damage
+        const rawDmg = closestTarget.headshot ? spec.headshotDamage : spec.damage
+        const dmg = Math.round(rawDmg * damageMult)
         const prev = damageAccumulator.get(closestTarget.player.id)
         damageAccumulator.set(closestTarget.player.id, {
           damage: (prev?.damage ?? 0) + dmg,
@@ -796,7 +1336,7 @@ export class RoomManager {
       }
     }
 
-    const hits: ShootOutcome['hits'] = []
+    const hits: CombatHitRecord[] = []
     let scoreboardChanged = false
     let primaryHitPlayerId: string | undefined
     let primaryHeadshot: boolean | undefined
@@ -808,66 +1348,17 @@ export class RoomManager {
       primaryHitPlayerId = victim.id
       primaryHeadshot = info.headshot
 
-      victim.hp = Math.max(0, victim.hp - info.damage)
-      const killed = victim.hp <= 0
-      let pointsAwarded = 0
-      let killEvent: KillFeedItem | undefined
-
-      if (killed) {
-        victim.alive = false
-        victim.respawnAt = now + MATCH_CONFIG.RESPAWN_MS
-        victim.deaths += 1
-        victim.streak = 0
-        victim.weapon = null
-        victim.ammo = 0
-        victim.maxAmmo = 0
-        victim.reloadingUntil = null
-
-        shooter.kills += 1
-        shooter.streak += 1
-        if (info.headshot) shooter.headshots += 1
-        pointsAwarded = SCORING.KILL + (info.headshot ? SCORING.HEADSHOT_BONUS : 0)
-        shooter.totalScore += pointsAwarded
-        scoreboardChanged = true
-
-        killEvent = {
-          id: crypto.randomUUID(),
-          killerId: shooter.id,
-          killerName: shooter.name,
-          killerTeam: shooter.team,
-          victimId: victim.id,
-          victimName: victim.name,
-          victimTeam: victim.team,
-          weapon: shooter.weapon,
-          headshot: info.headshot,
-          pointsAwarded,
-          timestamp: now,
-        }
-        room.killFeed.unshift(killEvent)
-        if (room.killFeed.length > 8) room.killFeed.pop()
-      }
-
-      hits.push({
-        victimId: victim.id,
-        confirm: {
-          victimId: victim.id,
-          victimName: victim.name,
-          damage: info.damage,
-          headshot: info.headshot,
-          killed,
-          pointsAwarded,
-        },
-        damageTaken: {
-          attackerId: shooter.id,
-          attackerName: shooter.name,
-          weapon: shooter.weapon,
-          damage: info.damage,
-          headshot: info.headshot,
-          remainingHp: victim.hp,
-          killed,
-        },
-        killEvent,
-      })
+      const record = this.applyDamageAndKill(
+        room,
+        shooter,
+        victim,
+        info.damage,
+        info.headshot,
+        shooter.weapon,
+        now,
+      )
+      hits.push(record)
+      if (record.confirm.killed) scoreboardChanged = true
     }
 
     const shot: ShotEvent = {
@@ -890,7 +1381,6 @@ export class RoomManager {
     const transitions: TickTransition[] = []
 
     for (const [roomCode, room] of this.rooms.entries()) {
-      // Clean up abandoned rooms where nobody has been connected for 10 minutes
       const anyConnected = Array.from(room.players.values()).some((p) => p.connected)
       if (!anyConnected) {
         const latestDisconnect = Math.max(
@@ -913,10 +1403,74 @@ export class RoomManager {
       }
 
       if (room.phase === 'playing') {
-        // Process reloads and respawns
         let anyRespawn = false
         let anyReload = false
+        let effectsDirty = false
+
+        // Tick delayed Orbital Strikes & clean up expired WorldEffects
+        for (const eff of room.worldEffects) {
+          if (eff.kind === 'orbital' && !eff.detonated && eff.detonateAt && now >= eff.detonateAt) {
+            eff.detonated = true
+            effectsDirty = true
+            const attacker = room.players.get(eff.ownerId)
+            if (attacker) {
+              const orbitalHits: CombatHitRecord[] = []
+              for (const enemy of room.players.values()) {
+                if (enemy.team === eff.ownerTeam || !enemy.alive || !enemy.connected) continue
+                const d = Math.hypot(
+                  enemy.position.x - eff.position.x,
+                  enemy.position.z - eff.position.z,
+                )
+                if (d <= eff.radius) {
+                  orbitalHits.push(
+                    this.applyDamageAndKill(
+                      room,
+                      attacker,
+                      enemy,
+                      90,
+                      false,
+                      'skill',
+                      now,
+                      'ORBITAL STRIKE',
+                    ),
+                  )
+                }
+              }
+              if (orbitalHits.length > 0) {
+                transitions.push({
+                  roomCode,
+                  type: 'ORBITAL_DETONATED',
+                  hits: orbitalHits,
+                  attackerId: attacker.id,
+                })
+              }
+            }
+          }
+        }
+
+        const beforeEffects = room.worldEffects.length
+        room.worldEffects = room.worldEffects.filter((e) => e.expiresAt > now)
+        if (room.worldEffects.length !== beforeEffects) {
+          effectsDirty = true
+        }
+
         for (const p of room.players.values()) {
+          // Expire Titan Overshield cleanly
+          if (p.overshieldUntil !== null && now >= p.overshieldUntil) {
+            p.overshieldUntil = null
+            p.maxHp = MATCH_CONFIG.MAX_HP
+            p.hp = Math.min(p.hp, MATCH_CONFIG.MAX_HP)
+          }
+          if (p.overdriveUntil !== null && now >= p.overdriveUntil) {
+            p.overdriveUntil = null
+          }
+          if (p.blindedUntil !== null && now >= p.blindedUntil) {
+            p.blindedUntil = null
+          }
+          if (p.revealedUntil !== null && now >= p.revealedUntil) {
+            p.revealedUntil = null
+          }
+
           if (p.reloadingUntil !== null && now >= p.reloadingUntil && p.weapon) {
             p.ammo = WEAPONS[p.weapon].magSize
             p.reloadingUntil = null
@@ -928,17 +1482,20 @@ export class RoomManager {
             p.yaw = spawn.yaw
             p.pitch = 0
             p.hp = MATCH_CONFIG.MAX_HP
+            p.maxHp = MATCH_CONFIG.MAX_HP
             p.alive = true
             p.respawnAt = null
             anyRespawn = true
           }
         }
+
         if (anyRespawn) transitions.push({ roomCode, type: 'RESPAWNED' })
         if (anyReload) transitions.push({ roomCode, type: 'RELOADED' })
+        if (effectsDirty) transitions.push({ roomCode, type: 'EFFECTS_UPDATED' })
 
-        // Match ends precisely at 90 seconds
         if (room.matchEndsAt !== null && now >= room.matchEndsAt) {
           room.phase = 'finished'
+          room.worldEffects = []
           const summary = this.buildMatchSummary(room, now)
           room.summary = summary
           transitions.push({ roomCode, type: 'MATCH_FINISHED', summary })
@@ -955,6 +1512,7 @@ export class RoomManager {
       playerId: p.id,
       name: p.name,
       team: p.team,
+      agent: p.agent,
       correctAnswers: p.correctAnswers,
       wrongAnswers: p.wrongAnswers,
       kills: p.kills,
@@ -1005,6 +1563,7 @@ export class RoomManager {
       id: p.id,
       name: p.name,
       team: p.team,
+      agent: p.agent,
       ready: p.ready,
       connected: p.connected,
       isHost: p.isHost,
@@ -1019,6 +1578,14 @@ export class RoomManager {
       ammo: p.ammo,
       maxAmmo: p.maxAmmo,
       reloadingUntil: p.reloadingUntil,
+      skillQReadyAt: p.skillQReadyAt,
+      skillCReadyAt: p.skillCReadyAt,
+      ultPoints: p.ultPoints,
+      ultMax: p.ultMax,
+      overdriveUntil: p.overdriveUntil,
+      overshieldUntil: p.overshieldUntil,
+      blindedUntil: p.blindedUntil,
+      revealedUntil: p.revealedUntil,
       kills: p.kills,
       deaths: p.deaths,
       headshots: p.headshots,
@@ -1041,6 +1608,11 @@ export class RoomManager {
       players,
       scoreboard: this.buildScoreboard(room),
       killFeed: [...room.killFeed],
+      worldEffects: room.worldEffects.map((e) => ({
+        ...e,
+        position: { ...e.position },
+        box: e.box ? { ...e.box } : undefined,
+      })),
       summary: room.summary,
     }
   }

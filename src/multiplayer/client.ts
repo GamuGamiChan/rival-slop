@@ -1,4 +1,4 @@
-import type { Difficulty, ServerMessage, Team, Vec3 } from '../../shared/types.ts'
+import type { AgentId, Difficulty, ServerMessage, SkillSlot, Team, Vec3 } from '../../shared/types.ts'
 import { soundEngine } from '../game/sound.ts'
 import { loadSession, useGameStore } from '../store/useGameStore.ts'
 import { SupabaseAdapter } from './supabaseAdapter.ts'
@@ -64,6 +64,10 @@ class MultiplayerClient {
           soundEngine.playWeaponFire(msg.shot.weapon, 0.32)
         }
         break
+      case 'SKILL_CAST':
+        store.onSkillCast(msg.cast)
+        soundEngine.playSkillCast(msg.cast.skillId, msg.cast.playerId === store.playerId ? 1 : 0.45)
+        break
       case 'HIT_CONFIRMED':
         store.onHitConfirmed(msg.hit)
         soundEngine.playHitMarker(msg.hit.headshot, msg.hit.killed)
@@ -126,18 +130,23 @@ class MultiplayerClient {
     if (this.mode !== 'ws') return false
     const saved = loadSession()
     if (!saved) return false
-    try {
-      await this.ws.ensureConnected()
-      this.ws.sendRaw({
-        type: 'RECONNECT',
-        roomCode: saved.roomCode,
-        playerId: saved.playerId,
-        sessionToken: saved.sessionToken,
-      })
-      return true
-    } catch {
-      return false
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        await this.ws.ensureConnected()
+        this.ws.sendRaw({
+          type: 'RECONNECT',
+          roomCode: saved.roomCode,
+          playerId: saved.playerId,
+          sessionToken: saved.sessionToken,
+        })
+        return true
+      } catch {
+        if (attempt === 0) {
+          await new Promise((r) => window.setTimeout(r, 350))
+        }
+      }
     }
+    return false
   }
 
   setReady(ready: boolean): void {
@@ -149,6 +158,12 @@ class MultiplayerClient {
   switchTeam(team: Team): void {
     if (this.mode === 'ws') {
       this.ws.sendRaw({ type: 'SWITCH_TEAM', team })
+    }
+  }
+
+  selectAgent(agent: AgentId): void {
+    if (this.mode === 'ws') {
+      this.ws.sendRaw({ type: 'SELECT_AGENT', agent })
     }
   }
 
@@ -178,7 +193,7 @@ class MultiplayerClient {
 
   sendMove(position: Vec3, yaw: number, pitch: number): void {
     const now = performance.now()
-    if (now - this.lastMoveSentAt < 45) return // Cap outbound moves at ~22 Hz
+    if (now - this.lastMoveSentAt < 45) return
     this.lastMoveSentAt = now
     if (this.mode === 'supabase') {
       this.sb.sendMove(position, yaw, pitch)
@@ -208,6 +223,12 @@ class MultiplayerClient {
       void this.sb.shoot(origin, direction)
     } else {
       this.ws.sendRaw({ type: 'SHOOT', origin, direction })
+    }
+  }
+
+  useSkill(slot: SkillSlot, origin: Vec3, direction: Vec3): void {
+    if (this.mode === 'ws') {
+      this.ws.sendRaw({ type: 'USE_SKILL', slot, origin, direction })
     }
   }
 

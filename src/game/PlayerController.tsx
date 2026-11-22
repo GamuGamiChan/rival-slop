@@ -1,7 +1,8 @@
 import { useFrame, useThree } from '@react-three/fiber'
 import { useCallback, useEffect, useRef } from 'react'
 import * as THREE from 'three'
-import { PLAYER_DIMENSIONS, resolvePlayerMovement } from '../../shared/arena.ts'
+import { PLAYER_DIMENSIONS, resolvePlayerMovement, type ArenaBox } from '../../shared/arena.ts'
+import type { SkillSlot } from '../../shared/types.ts'
 import { WEAPONS } from '../../shared/weapons.ts'
 import { multiplayerClient } from '../multiplayer/client.ts'
 import { selectMyPlayer, useGameStore } from '../store/useGameStore.ts'
@@ -26,6 +27,26 @@ export function PlayerController() {
   const lastShotClientAtRef = useRef(0)
   const prevAliveRef = useRef(true)
   const prevPhaseRef = useRef<string>('lobby')
+
+  const castSkill = useCallback(
+    (slot: SkillSlot) => {
+      const state = useGameStore.getState()
+      if (state.room?.phase !== 'playing') return
+      if (state.mathModalOpen || state.pauseOpen) return
+      const me = selectMyPlayer(state)
+      if (!me || !me.alive) return
+
+      const activeCamera = getThreeState().camera
+      const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(activeCamera.quaternion).normalize()
+      const origin = {
+        x: posRef.current.x,
+        y: posRef.current.y + PLAYER_DIMENSIONS.eyeHeight,
+        z: posRef.current.z,
+      }
+      multiplayerClient.useSkill(slot, origin, { x: dir.x, y: dir.y, z: dir.z })
+    },
+    [getThreeState],
+  )
 
   const attemptShoot = useCallback(() => {
     const state = useGameStore.getState()
@@ -53,7 +74,9 @@ export function PlayerController() {
       return
     }
 
-    if (now - lastShotClientAtRef.current < spec.fireRateMs) return
+    const overdriveActive = Boolean(me.overdriveUntil && serverNow < me.overdriveUntil)
+    const effectiveFireRate = overdriveActive ? Math.floor(spec.fireRateMs * 0.65) : spec.fireRateMs
+    if (now - lastShotClientAtRef.current < effectiveFireRate) return
     lastShotClientAtRef.current = now
 
     const activeCamera = getThreeState().camera
@@ -175,6 +198,25 @@ export function PlayerController() {
 
       if (state.mathModalOpen || state.pauseOpen) return
 
+      // Valorant-style Q / C / X Tactical Skill hotkeys
+      if (state.room?.phase === 'playing') {
+        if (e.code === 'KeyQ') {
+          e.preventDefault()
+          castSkill('Q')
+          return
+        }
+        if (e.code === 'KeyC') {
+          e.preventDefault()
+          castSkill('C')
+          return
+        }
+        if (e.code === 'KeyX') {
+          e.preventDefault()
+          castSkill('X')
+          return
+        }
+      }
+
       keysRef.current.add(e.code)
 
       if (e.code === 'KeyR' && state.room?.phase === 'playing') {
@@ -191,7 +233,6 @@ export function PlayerController() {
         soundEngine.playJump(false)
       }
 
-      // Keyboard fire fallback for trackpad / accessibility users
       if (e.code === 'KeyF' && state.room?.phase === 'playing') {
         attemptShoot()
       }
@@ -211,6 +252,13 @@ export function PlayerController() {
       useGameStore.getState().setScoreboardOpen(false)
     }
 
+    const onHudSkillEvent = (ev: Event) => {
+      const slot = (ev as CustomEvent<SkillSlot>).detail
+      if (slot === 'Q' || slot === 'C' || slot === 'X') {
+        castSkill(slot)
+      }
+    }
+
     document.addEventListener('pointerlockchange', onPointerLockChange)
     window.addEventListener('mousemove', onMouseMove)
     window.addEventListener('mousedown', onMouseDown)
@@ -219,6 +267,7 @@ export function PlayerController() {
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('keyup', onKeyUp)
     window.addEventListener('blur', onBlur)
+    window.addEventListener('math-rivals-cast-skill', onHudSkillEvent)
 
     return () => {
       document.removeEventListener('pointerlockchange', onPointerLockChange)
@@ -229,15 +278,15 @@ export function PlayerController() {
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keyup', onKeyUp)
       window.removeEventListener('blur', onBlur)
+      window.removeEventListener('math-rivals-cast-skill', onHudSkillEvent)
     }
-  }, [gl.domElement, attemptShoot])
+  }, [gl.domElement, attemptShoot, castSkill])
 
   useFrame((frameState, rawDelta) => {
     const cam = frameState.camera
     const dt = Math.min(rawDelta, 0.05)
     const state = useGameStore.getState()
 
-    // Cinematic orbiting showcase camera when in Menu / Room / Lobby / Result screens
     if (state.screen !== 'arena' || !state.room) {
       const t = frameState.clock.elapsedTime * 0.16
       const radius = 26
@@ -253,8 +302,11 @@ export function PlayerController() {
     const me = selectMyPlayer(state)
     if (!me) return
 
-    // Snap position on phase change (lobby -> countdown -> playing) or respawn
-    if (prevPhaseRef.current !== state.room.phase || (!prevAliveRef.current && me.alive)) {
+    // Snap on phase change, respawn, or server-authorized Dash / Phase Blink
+    const pendingSnap = state.consumePendingSnap()
+    if (pendingSnap) {
+      posRef.current = { ...pendingSnap }
+    } else if (prevPhaseRef.current !== state.room.phase || (!prevAliveRef.current && me.alive)) {
       posRef.current = { ...me.position }
       yawRef.current = me.yaw
       pitchRef.current = 0
@@ -276,7 +328,6 @@ export function PlayerController() {
       }
     }
 
-    // Keyboard aim fallback (Arrow keys)
     if (!state.mathModalOpen && !state.pauseOpen) {
       const keys = keysRef.current
       if (keys.has('ArrowLeft')) yawRef.current += 2.2 * dt
@@ -285,20 +336,17 @@ export function PlayerController() {
       if (keys.has('ArrowDown')) pitchRef.current = Math.max(-Math.PI / 2 + 0.08, pitchRef.current - 1.6 * dt)
     }
 
-    // Apply camera orientation (YXZ Euler for crisp FPS look)
     cam.rotation.order = 'YXZ'
     cam.rotation.y = yawRef.current
     cam.rotation.x = pitchRef.current
     cam.rotation.z = 0
 
-    // Dead spectator camera float
     if (!me.alive) {
       cam.position.set(posRef.current.x, posRef.current.y + 3.4, posRef.current.z + 2.5)
       cam.lookAt(posRef.current.x, posRef.current.y + 1, posRef.current.z)
       return
     }
 
-    // Active Movement Physics during 'playing'
     if (state.room.phase === 'playing' && !state.mathModalOpen && !state.pauseOpen) {
       const keys = keysRef.current
       let forwardInput = 0
@@ -308,8 +356,10 @@ export function PlayerController() {
       if (keys.has('KeyD')) strafeInput += 1
       if (keys.has('KeyA')) strafeInput -= 1
 
+      const serverNow = Date.now() + state.clockOffsetMs
+      const overdriveMult = me.overdriveUntil && serverNow < me.overdriveUntil ? 1.32 : 1.0
       const sprinting = (keys.has('ShiftLeft') || keys.has('ShiftRight')) && forwardInput > 0 && !state.isAdsZoom
-      const speed = sprinting ? SPRINT_SPEED : state.isAdsZoom ? WALK_SPEED * 0.6 : WALK_SPEED
+      const speed = (sprinting ? SPRINT_SPEED : state.isAdsZoom ? WALK_SPEED * 0.6 : WALK_SPEED) * overdriveMult
 
       let moveX = 0
       let moveZ = 0
@@ -323,6 +373,24 @@ export function PlayerController() {
         moveZ = (-cosY * nf - sinY * ns) * speed * dt
       }
 
+      // Collect active 3D Aegis Barrier Walls for physical collision
+      const dynamicBarriers: ArenaBox[] = []
+      for (const eff of state.room.worldEffects) {
+        if (eff.kind === 'barrier' && eff.box && eff.expiresAt > serverNow) {
+          dynamicBarriers.push({
+            id: eff.id,
+            minX: eff.box.minX,
+            maxX: eff.box.maxX,
+            minY: eff.box.minY,
+            maxY: eff.box.maxY,
+            minZ: eff.box.minZ,
+            maxZ: eff.box.maxZ,
+            kind: 'glass',
+            accent: eff.ownerTeam,
+          })
+        }
+      }
+
       velocityYRef.current -= GRAVITY * dt
       const desired = {
         x: posRef.current.x + moveX,
@@ -330,7 +398,12 @@ export function PlayerController() {
         z: posRef.current.z + moveZ,
       }
 
-      const resolved = resolvePlayerMovement(posRef.current, desired, velocityYRef.current)
+      const resolved = resolvePlayerMovement(
+        posRef.current,
+        desired,
+        velocityYRef.current,
+        dynamicBarriers,
+      )
       posRef.current = resolved.position
       velocityYRef.current = resolved.velocityY
       groundedRef.current = resolved.grounded

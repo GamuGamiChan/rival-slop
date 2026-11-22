@@ -1,7 +1,7 @@
 import http from 'node:http'
 import { WebSocket, WebSocketServer } from 'ws'
 import type { ClientMessage, ServerMessage } from '../shared/types.ts'
-import { RoomManager } from './roomManager.ts'
+import { RoomManager, type CombatHitRecord } from './roomManager.ts'
 
 interface ClientSession {
   ws: WebSocket
@@ -43,6 +43,22 @@ function broadcastRoomState(roomCode: string): void {
     type: 'ROOM_STATE',
     room: manager.buildSnapshot(room),
   })
+}
+
+function emitCombatHits(roomCode: string, attackerId: string, hits: CombatHitRecord[]): void {
+  const attackerSocket = playerSockets.get(attackerId)
+  for (const hit of hits) {
+    if (attackerSocket) {
+      send(attackerSocket.ws, { type: 'HIT_CONFIRMED', hit: hit.confirm })
+    }
+    const victimSocket = playerSockets.get(hit.victimId)
+    if (victimSocket) {
+      send(victimSocket.ws, { type: 'DAMAGE_TAKEN', damage: hit.damageTaken })
+    }
+    if (hit.killEvent) {
+      broadcastToRoom(roomCode, { type: 'KILL_EVENT', kill: hit.killEvent })
+    }
+  }
 }
 
 const server = http.createServer((req, res) => {
@@ -147,7 +163,6 @@ wss.on('connection', (ws) => {
           send(ws, { type: 'ERROR', code: res.code, message: res.message })
           break
         }
-        // Close stale socket for this player if any
         const old = playerSockets.get(msg.playerId)
         if (old && old !== session) {
           old.roomCode = null
@@ -196,6 +211,17 @@ wss.on('connection', (ws) => {
       case 'SWITCH_TEAM': {
         if (!session.roomCode || !session.playerId) return
         const res = manager.switchTeam(session.roomCode, session.playerId, msg.team)
+        if (!res.ok) {
+          send(ws, { type: 'ERROR', code: res.code, message: res.message })
+        } else {
+          broadcastToRoom(session.roomCode, { type: 'ROOM_STATE', room: res.snapshot })
+        }
+        break
+      }
+
+      case 'SELECT_AGENT': {
+        if (!session.roomCode || !session.playerId) return
+        const res = manager.selectAgent(session.roomCode, session.playerId, msg.agent)
         if (!res.ok) {
           send(ws, { type: 'ERROR', code: res.code, message: res.message })
         } else {
@@ -269,11 +295,35 @@ wss.on('connection', (ws) => {
         break
       }
 
+      case 'USE_SKILL': {
+        if (!session.roomCode || !session.playerId) return
+        const res = manager.useSkill(
+          session.roomCode,
+          session.playerId,
+          msg.slot,
+          msg.origin,
+          msg.direction,
+        )
+        if (!res.ok) {
+          if (res.code === 'ULT_NOT_READY') {
+            send(ws, { type: 'ERROR', code: res.code, message: res.message })
+          }
+          return
+        }
+
+        broadcastToRoom(session.roomCode, { type: 'SKILL_CAST', cast: res.outcome.cast })
+        emitCombatHits(session.roomCode, session.playerId, res.outcome.hits)
+
+        if (res.outcome.roomStateChanged || res.outcome.scoreboardChanged) {
+          broadcastRoomState(session.roomCode)
+        }
+        break
+      }
+
       case 'SHOOT': {
         if (!session.roomCode || !session.playerId) return
         const res = manager.shoot(session.roomCode, session.playerId, msg.origin, msg.direction)
         if (!res.ok) {
-          // Silently ignore harmless fire-rate/reload race conditions; notify real errors
           if (res.code === 'NO_WEAPON') {
             send(ws, { type: 'ERROR', code: res.code, message: res.message })
           }
@@ -281,17 +331,7 @@ wss.on('connection', (ws) => {
         }
 
         broadcastToRoom(session.roomCode, { type: 'SHOT_FIRED', shot: res.outcome.shot })
-
-        for (const hit of res.outcome.hits) {
-          send(ws, { type: 'HIT_CONFIRMED', hit: hit.confirm })
-          const victimSocket = playerSockets.get(hit.victimId)
-          if (victimSocket) {
-            send(victimSocket.ws, { type: 'DAMAGE_TAKEN', damage: hit.damageTaken })
-          }
-          if (hit.killEvent) {
-            broadcastToRoom(session.roomCode, { type: 'KILL_EVENT', kill: hit.killEvent })
-          }
-        }
+        emitCombatHits(session.roomCode, session.playerId, res.outcome.hits)
 
         if (res.scoreboardChanged) {
           broadcastRoomState(session.roomCode)
@@ -328,12 +368,19 @@ setInterval(() => {
           room: manager.buildSnapshot(room),
         })
       }
-    } else if (t.type === 'PHASE_PLAYING' || t.type === 'RESPAWNED' || t.type === 'RELOADED') {
+    } else if (t.type === 'ORBITAL_DETONATED' && t.hits && t.attackerId) {
+      emitCombatHits(t.roomCode, t.attackerId, t.hits)
+      broadcastRoomState(t.roomCode)
+    } else if (
+      t.type === 'PHASE_PLAYING' ||
+      t.type === 'RESPAWNED' ||
+      t.type === 'RELOADED' ||
+      t.type === 'EFFECTS_UPDATED'
+    ) {
       broadcastRoomState(t.roomCode)
     }
   }
 
-  // Broadcast low-overhead player positions for active matches
   const now = Date.now()
   for (const code of manager.getAllRoomCodes()) {
     const room = manager.getRoom(code)
@@ -344,11 +391,19 @@ setInterval(() => {
       yaw: p.yaw,
       pitch: p.pitch,
       hp: p.hp,
+      maxHp: p.maxHp,
       alive: p.alive,
       respawnAt: p.respawnAt,
       weapon: p.weapon,
       ammo: p.ammo,
       reloadingUntil: p.reloadingUntil,
+      skillQReadyAt: p.skillQReadyAt,
+      skillCReadyAt: p.skillCReadyAt,
+      ultPoints: p.ultPoints,
+      overdriveUntil: p.overdriveUntil,
+      overshieldUntil: p.overshieldUntil,
+      blindedUntil: p.blindedUntil,
+      revealedUntil: p.revealedUntil,
     }))
     broadcastToRoom(code, { type: 'POSITIONS_SYNC', serverNow: now, positions })
   }
