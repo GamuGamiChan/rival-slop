@@ -362,12 +362,12 @@ function ArenaWorld() {
   const blueGlassTex = useMemo(() => createEnergyGlassTexture('blue'), [])
   const redGlassTex = useMemo(() => createEnergyGlassTexture('red'), [])
 
-  const players = useGameStore((s) => s.room?.players ?? [])
+  const players = useGameStore((s) => s.room?.players)
   const myId = useGameStore((s) => s.playerId)
   const screen = useGameStore((s) => s.screen)
 
   const remotePlayers = useMemo(
-    () => players.filter((p) => p.id !== myId),
+    () => (players ? players.filter((p) => p.id !== myId) : []),
     [players, myId],
   )
 

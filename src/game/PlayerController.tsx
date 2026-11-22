@@ -1,5 +1,5 @@
 import { useFrame, useThree } from '@react-three/fiber'
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import { PLAYER_DIMENSIONS, resolvePlayerMovement } from '../../shared/arena.ts'
 import { WEAPONS } from '../../shared/weapons.ts'
@@ -14,7 +14,8 @@ const GRAVITY = 22.0
 const DEFAULT_FOV = 75
 
 export function PlayerController() {
-  const { camera, gl } = useThree()
+  const gl = useThree((s) => s.gl)
+  const getThreeState = useThree((s) => s.get)
   const keysRef = useRef<Set<string>>(new Set())
   const mouseDownRef = useRef(false)
   const velocityYRef = useRef(0)
@@ -26,7 +27,7 @@ export function PlayerController() {
   const prevAliveRef = useRef(true)
   const prevPhaseRef = useRef<string>('lobby')
 
-  const attemptShoot = () => {
+  const attemptShoot = useCallback(() => {
     const state = useGameStore.getState()
     if (state.room?.phase !== 'playing') return
     if (state.mathModalOpen || state.pauseOpen) return
@@ -34,7 +35,6 @@ export function PlayerController() {
     if (!me || !me.alive) return
 
     if (!me.weapon) {
-      // Prompt player smoothly to open math terminal if trying to shoot unarmed
       if (!state.mathModalOpen) {
         if (document.pointerLockElement) document.exitPointerLock()
         multiplayerClient.requestQuestion()
@@ -56,8 +56,8 @@ export function PlayerController() {
     if (now - lastShotClientAtRef.current < spec.fireRateMs) return
     lastShotClientAtRef.current = now
 
-    // Compute exact forward ray from camera
-    const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).normalize()
+    const activeCamera = getThreeState().camera
+    const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(activeCamera.quaternion).normalize()
     const origin = {
       x: posRef.current.x,
       y: posRef.current.y + PLAYER_DIMENSIONS.eyeHeight,
@@ -67,7 +67,7 @@ export function PlayerController() {
     state.triggerLocalShotVisual()
     soundEngine.playWeaponFire(me.weapon, 1)
     multiplayerClient.shoot(origin, { x: dir.x, y: dir.y, z: dir.z })
-  }
+  }, [getThreeState])
 
   useEffect(() => {
     const domElement = gl.domElement
@@ -77,7 +77,6 @@ export function PlayerController() {
       const state = useGameStore.getState()
       state.setPointerLocked(locked)
 
-      // When user presses ESC during active gameplay (and math modal isn't open), open Pause Menu
       if (!locked && state.screen === 'arena' && state.room?.phase === 'playing' && !state.mathModalOpen) {
         state.setPauseOpen(true)
       }
@@ -103,7 +102,6 @@ export function PlayerController() {
       if (state.screen !== 'arena') return
       if (state.mathModalOpen || state.pauseOpen) return
 
-      // Clicking canvas locks pointer for FPS controls
       if (document.pointerLockElement !== domElement) {
         if (e.target === domElement) {
           void domElement.requestPointerLock?.()
@@ -193,7 +191,7 @@ export function PlayerController() {
         soundEngine.playJump(false)
       }
 
-      // Keyboard fire fallback (KeyF / Enter) for accessibility & trackpad users
+      // Keyboard fire fallback for trackpad / accessibility users
       if (e.code === 'KeyF' && state.room?.phase === 'playing') {
         attemptShoot()
       }
@@ -232,21 +230,22 @@ export function PlayerController() {
       window.removeEventListener('keyup', onKeyUp)
       window.removeEventListener('blur', onBlur)
     }
-  }, [gl.domElement, camera])
+  }, [gl.domElement, attemptShoot])
 
-  useFrame((clockState, rawDelta) => {
+  useFrame((frameState, rawDelta) => {
+    const cam = frameState.camera
     const dt = Math.min(rawDelta, 0.05)
     const state = useGameStore.getState()
 
     // Cinematic orbiting showcase camera when in Menu / Room / Lobby / Result screens
     if (state.screen !== 'arena' || !state.room) {
-      const t = clockState.clock.elapsedTime * 0.16
+      const t = frameState.clock.elapsedTime * 0.16
       const radius = 26
-      camera.position.set(Math.sin(t) * radius, 11.5 + Math.sin(t * 1.4) * 1.4, Math.cos(t) * radius)
-      camera.lookAt(0, 2.2, 0)
-      if (camera instanceof THREE.PerspectiveCamera && Math.abs(camera.fov - 65) > 0.2) {
-        camera.fov = 65
-        camera.updateProjectionMatrix()
+      cam.position.set(Math.sin(t) * radius, 11.5 + Math.sin(t * 1.4) * 1.4, Math.cos(t) * radius)
+      cam.lookAt(0, 2.2, 0)
+      if (cam instanceof THREE.PerspectiveCamera && Math.abs(cam.fov - 65) > 0.2) {
+        cam.fov = 65
+        cam.updateProjectionMatrix()
       }
       return
     }
@@ -266,14 +265,14 @@ export function PlayerController() {
     prevAliveRef.current = me.alive
 
     // Smooth ADS FOV zoom
-    if (camera instanceof THREE.PerspectiveCamera) {
+    if (cam instanceof THREE.PerspectiveCamera) {
       const targetFov =
         state.isAdsZoom && me.weapon && me.alive && !state.mathModalOpen
           ? WEAPONS[me.weapon].adsFov
           : DEFAULT_FOV
-      if (Math.abs(camera.fov - targetFov) > 0.1) {
-        camera.fov = THREE.MathUtils.lerp(camera.fov, targetFov, Math.min(1, dt * 14))
-        camera.updateProjectionMatrix()
+      if (Math.abs(cam.fov - targetFov) > 0.1) {
+        cam.fov = THREE.MathUtils.lerp(cam.fov, targetFov, Math.min(1, dt * 14))
+        cam.updateProjectionMatrix()
       }
     }
 
@@ -287,15 +286,15 @@ export function PlayerController() {
     }
 
     // Apply camera orientation (YXZ Euler for crisp FPS look)
-    camera.rotation.order = 'YXZ'
-    camera.rotation.y = yawRef.current
-    camera.rotation.x = pitchRef.current
-    camera.rotation.z = 0
+    cam.rotation.order = 'YXZ'
+    cam.rotation.y = yawRef.current
+    cam.rotation.x = pitchRef.current
+    cam.rotation.z = 0
 
     // Dead spectator camera float
     if (!me.alive) {
-      camera.position.set(posRef.current.x, posRef.current.y + 3.4, posRef.current.z + 2.5)
-      camera.lookAt(posRef.current.x, posRef.current.y + 1, posRef.current.z)
+      cam.position.set(posRef.current.x, posRef.current.y + 3.4, posRef.current.z + 2.5)
+      cam.lookAt(posRef.current.x, posRef.current.y + 1, posRef.current.z)
       return
     }
 
@@ -320,8 +319,6 @@ export function PlayerController() {
         const ns = strafeInput / len
         const sinY = Math.sin(yawRef.current)
         const cosY = Math.cos(yawRef.current)
-        // Forward in Three.js (-Z when yaw=0): (-sinY, -cosY)
-        // Right in Three.js (+X when yaw=0): (cosY, -sinY)
         moveX = (-sinY * nf + cosY * ns) * speed * dt
         moveZ = (-cosY * nf - sinY * ns) * speed * dt
       }
@@ -342,14 +339,12 @@ export function PlayerController() {
         soundEngine.playJump(true)
       }
 
-      // Hold-to-fire automatic weapon (Vector AR-42 Rifle)
       if (mouseDownRef.current && me.weapon && WEAPONS[me.weapon].automatic) {
         attemptShoot()
       }
     }
 
-    // Update FPS camera eye position
-    camera.position.set(
+    cam.position.set(
       posRef.current.x,
       posRef.current.y + PLAYER_DIMENSIONS.eyeHeight,
       posRef.current.z,

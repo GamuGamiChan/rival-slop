@@ -249,6 +249,7 @@ export function WeaponViewmodel() {
 
   return (
     <group ref={rootRef} visible={!isAdsZoom || weapon !== 'sniper'}>
+      <pointLight position={[0.15, 0.25, -0.15]} intensity={1.8} distance={2.5} color="#dbeafe" />
       <group ref={weaponPivotRef}>
         {weapon === 'pistol' && <PistolMesh accent={spec.accentColor} />}
         {weapon === 'rifle' && <RifleMesh accent={spec.accentColor} />}
