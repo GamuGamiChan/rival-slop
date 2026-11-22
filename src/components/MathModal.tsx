@@ -3,9 +3,12 @@ import {
   BookOpen,
   CheckCircle2,
   Clock,
+  Compass,
   Dices,
   History,
+  Lightbulb,
   Loader2,
+  Scissors,
   ShieldAlert,
   Sparkles,
   XCircle,
@@ -265,6 +268,7 @@ export function MathModal() {
   const selectedChoiceIndex = useGameStore((s) => s.selectedChoiceIndex)
   const lastAnswer = useGameStore((s) => s.lastAnswerResult)
   const mathHistory = useGameStore((s) => s.mathHistory)
+  const mathHelperState = useGameStore((s) => s.mathHelperState)
   const beginMathSubmission = useGameStore((s) => s.beginMathSubmission)
   const advanceMathToWeaponReveal = useGameStore((s) => s.advanceMathToWeaponReveal)
   const errorMessage = useGameStore((s) => s.errorMessage)
@@ -281,7 +285,14 @@ export function MathModal() {
   }, [open])
 
   const visibleQuestion = activeQuestion ?? submittedQuestion
-  const showHint = Boolean(visibleQuestion && hintQuestionId === visibleQuestion.id)
+  const helperForCurrent =
+    visibleQuestion && mathHelperState.questionId === visibleQuestion.id ? mathHelperState : null
+  const eliminatedIndices = helperForCurrent?.eliminatedIndices ?? []
+  const stepHintText = helperForCurrent?.stepHint ?? null
+  const showFormulaHint = Boolean(
+    visibleQuestion &&
+      (hintQuestionId === visibleQuestion.id || Boolean(helperForCurrent?.formulaHint)),
+  )
 
   const serverNow = Math.max(nowMs + clockOffsetMs, room?.serverNow ?? 0)
   const roundLeftSec =
@@ -305,6 +316,12 @@ export function MathModal() {
         return
       }
       const q = state.activeQuestion
+      if (
+        state.mathHelperState.questionId === q.id &&
+        state.mathHelperState.eliminatedIndices.includes(idx)
+      ) {
+        return
+      }
       // Lock choice immediately in state machine to prevent duplicate submissions
       beginMathSubmission(q, idx)
       multiplayerClient.submitAnswer(q.id, idx)
@@ -334,9 +351,22 @@ export function MathModal() {
 
   if (!open) return null
 
-  const toggleHint = () => {
+  const triggerFormulaHint = () => {
     if (!visibleQuestion) return
-    setHintQuestionId((prev) => (prev === visibleQuestion.id ? null : visibleQuestion.id))
+    setHintQuestionId(visibleQuestion.id)
+    multiplayerClient.useMathHelper(visibleQuestion.id, 'formula')
+  }
+
+  const triggerFiftyFifty = () => {
+    if (!visibleQuestion || phase !== 'QUESTION_ACTIVE') return
+    if (eliminatedIndices.length > 0 || mathHelperState.remainingUses.fifty_fifty <= 0) return
+    multiplayerClient.useMathHelper(visibleQuestion.id, 'fifty_fifty')
+  }
+
+  const triggerStepHint = () => {
+    if (!visibleQuestion || phase !== 'QUESTION_ACTIVE') return
+    if (stepHintText || mathHelperState.remainingUses.step_hint <= 0) return
+    multiplayerClient.useMathHelper(visibleQuestion.id, 'step_hint')
   }
 
   const stepIndex =
@@ -466,7 +496,7 @@ export function MathModal() {
               <span className="font-thai text-cyan-200 bg-cyan-950/60 border border-cyan-500/30 px-2.5 py-1">
                 หัวข้อ: {visibleQuestion.topic}
               </span>
-              { me && (
+              {me && (
                 <span className="font-thai text-xs text-slate-300">
                   อาวุธที่ถืออยู่ปัจจุบัน:{' '}
                   <strong className="text-cyan-300">
@@ -474,22 +504,72 @@ export function MathModal() {
                   </strong>
                 </span>
               )}
-              {phase === 'QUESTION_ACTIVE' && (
-                <button
-                  type="button"
-                  onClick={toggleHint}
-                  className="inline-flex items-center gap-1.5 text-amber-300 hover:text-amber-200 font-thai cursor-pointer"
-                >
-                  <BookOpen className="w-3.5 h-3.5" />
-                  {showHint ? `สูตร: ${visibleQuestion.formulaHint}` : 'ดูใบ้สูตร (Hint)'}
-                </button>
-              )}
               {phase === 'ANSWER_SUBMITTED' && (
                 <span className="inline-flex items-center gap-1.5 text-cyan-300 font-thai font-semibold">
                   <Loader2 className="w-3.5 h-3.5 animate-spin" /> ส่งคำตอบแล้ว • รอระบบกลางประมวลผล...
                 </span>
               )}
             </div>
+
+            {/* 3 Tactical Math Helpers Bar (ตัวช่วยตอบคำถาม) */}
+            {phase === 'QUESTION_ACTIVE' && (
+              <div
+                id="math-helpers-bar"
+                className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-slate-950/90 border border-amber-500/35"
+              >
+                <span className="text-[11px] font-thai font-bold text-amber-300 flex items-center gap-1.5">
+                  <Lightbulb className="w-3.5 h-3.5" /> ตัวช่วย (LIFELINES):
+                </span>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    id="btn-helper-formula"
+                    type="button"
+                    disabled={showFormulaHint}
+                    onClick={triggerFormulaHint}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-thai font-bold border transition ${
+                      showFormulaHint
+                        ? 'bg-amber-500/20 border-amber-400/60 text-amber-200 cursor-default'
+                        : 'bg-slate-900 hover:bg-amber-500/20 border-amber-400/50 text-amber-200 cursor-pointer'
+                    }`}
+                  >
+                    <BookOpen className="w-3.5 h-3.5" />
+                    {showFormulaHint ? 'แสดงสูตรแล้ว' : 'ใบ้สูตร (ฟรี)'}
+                  </button>
+
+                  <button
+                    id="btn-helper-5050"
+                    type="button"
+                    disabled={
+                      eliminatedIndices.length > 0 || mathHelperState.remainingUses.fifty_fifty <= 0
+                    }
+                    onClick={triggerFiftyFifty}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-thai font-bold border transition ${
+                      eliminatedIndices.length > 0 || mathHelperState.remainingUses.fifty_fifty <= 0
+                        ? 'bg-slate-950 border-slate-800 text-slate-500 cursor-not-allowed'
+                        : 'bg-slate-900 hover:bg-cyan-500/20 border-cyan-400/60 text-cyan-200 cursor-pointer'
+                    }`}
+                  >
+                    <Scissors className="w-3.5 h-3.5" />
+                    ตัดช้อยส์ 50:50 ({mathHelperState.remainingUses.fifty_fifty})
+                  </button>
+
+                  <button
+                    id="btn-helper-step"
+                    type="button"
+                    disabled={Boolean(stepHintText) || mathHelperState.remainingUses.step_hint <= 0}
+                    onClick={triggerStepHint}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-thai font-bold border transition ${
+                      stepHintText || mathHelperState.remainingUses.step_hint <= 0
+                        ? 'bg-slate-950 border-slate-800 text-slate-500 cursor-not-allowed'
+                        : 'bg-slate-900 hover:bg-emerald-500/20 border-emerald-400/60 text-emerald-200 cursor-pointer'
+                    }`}
+                  >
+                    <Compass className="w-3.5 h-3.5" />
+                    แนวคิดเริ่มต้น ({mathHelperState.remainingUses.step_hint})
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Question prompt ALWAYS stays visible during selection AND feedback */}
             <div
@@ -499,17 +579,48 @@ export function MathModal() {
               {visibleQuestion.prompt}
             </div>
 
-            {/* Choice Grid (locked cleanly after submission) */}
+            {/* Active Helper Clues */}
+            {(showFormulaHint || stepHintText) && (
+              <div className="space-y-2">
+                {showFormulaHint && (
+                  <div
+                    id="math-formula-hint-box"
+                    className="px-3.5 py-2 bg-amber-950/55 border border-amber-400/60 text-amber-100 font-thai text-xs sm:text-sm flex items-start gap-2"
+                  >
+                    <BookOpen className="w-4 h-4 text-amber-300 shrink-0 mt-0.5" />
+                    <span>
+                      <strong className="text-amber-300">สูตรสำคัญ:</strong> {visibleQuestion.formulaHint}
+                    </span>
+                  </div>
+                )}
+                {stepHintText && (
+                  <div
+                    id="math-step-hint-box"
+                    className="px-3.5 py-2 bg-emerald-950/55 border border-emerald-400/60 text-emerald-100 font-thai text-xs sm:text-sm flex items-start gap-2"
+                  >
+                    <Compass className="w-4 h-4 text-emerald-300 shrink-0 mt-0.5" />
+                    <span>
+                      <strong className="text-emerald-300">แนวคิดเริ่มต้น:</strong> {stepHintText}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Choice Grid (locked cleanly after submission; 50:50 eliminates 2 wrong choices) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               {visibleQuestion.choices.map((choice, idx) => {
                 const isSelected = selectedChoiceIndex === idx
+                const isEliminated = eliminatedIndices.includes(idx)
                 const isCorrectChoice = phase === 'ANSWER_FEEDBACK' && lastAnswer?.correctIndex === idx
                 const isWrongSelected =
                   phase === 'ANSWER_FEEDBACK' && isSelected && lastAnswer && !lastAnswer.correct
 
                 let btnStyle =
                   'bg-slate-900/90 hover:bg-cyan-500/20 border-slate-700 hover:border-cyan-400 text-slate-100'
-                if (phase === 'ANSWER_SUBMITTED') {
+                if (isEliminated && phase === 'QUESTION_ACTIVE') {
+                  btnStyle = 'bg-slate-950/50 border-slate-800/70 text-slate-600 opacity-40 line-through'
+                } else if (phase === 'ANSWER_SUBMITTED') {
                   btnStyle = isSelected
                     ? 'bg-cyan-500/25 border-cyan-400 text-white'
                     : 'bg-slate-950/70 border-slate-800 text-slate-500 opacity-60'
@@ -527,11 +638,14 @@ export function MathModal() {
                   <button
                     key={idx}
                     id={`btn-math-choice-${idx}`}
+                    data-eliminated={String(isEliminated)}
                     type="button"
-                    disabled={phase !== 'QUESTION_ACTIVE'}
+                    disabled={phase !== 'QUESTION_ACTIVE' || isEliminated}
                     onClick={() => handleChoice(idx)}
                     className={`group flex items-center gap-3 p-3 text-left border transition hud-cut-sm ${btnStyle} ${
-                      phase === 'QUESTION_ACTIVE' ? 'cursor-pointer' : 'cursor-default'
+                      phase === 'QUESTION_ACTIVE' && !isEliminated
+                        ? 'cursor-pointer'
+                        : 'cursor-default'
                     }`}
                   >
                     <span className="h-7 w-7 shrink-0 flex items-center justify-center font-display font-bold text-xs bg-slate-950 border border-slate-700 text-cyan-300">
@@ -540,6 +654,9 @@ export function MathModal() {
                     <span className="font-thai text-sm sm:text-base font-semibold flex-1">
                       {choice}
                     </span>
+                    {isEliminated && phase === 'QUESTION_ACTIVE' && (
+                      <span className="text-[10px] font-mono text-rose-400 uppercase shrink-0">ตัดออก</span>
+                    )}
                     {isCorrectChoice && <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />}
                     {isWrongSelected && <XCircle className="w-4 h-4 text-rose-400 shrink-0" />}
                   </button>

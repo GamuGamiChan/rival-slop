@@ -42,7 +42,7 @@ import {
   raycastPlayerHitbox,
   type ArenaBox,
 } from './arena.ts'
-import { pickNextQuestion, QUESTION_BY_ID, toPublicQuestion } from './questions.ts'
+import { getQuestionStepHint, pickNextQuestion, QUESTION_BY_ID, toPublicQuestion } from './questions.ts'
 import {
   MATCH_CONFIG,
   SCORING,
@@ -52,6 +52,8 @@ import {
   type Difficulty,
   type HitConfirmPayload,
   type KillFeedItem,
+  type MathHelperPayload,
+  type MathHelperType,
   type MatchPhase,
   type MatchSummary,
   type PlayerPublicState,
@@ -75,6 +77,9 @@ export interface InternalPlayer extends PlayerPublicState {
   lastMoveAt: number
   activeQuestionId: string | null
   attemptedQuestionIds: Set<string>
+  helperFiftyFiftyLeft: number
+  helperStepHintLeft: number
+  usedHelpersByQuestion: Map<string, Set<MathHelperType>>
   disconnectedAt: number | null
 }
 
@@ -345,6 +350,9 @@ export class RoomManager {
       lastMoveAt: now,
       activeQuestionId: null,
       attemptedQuestionIds: new Set<string>(),
+      helperFiftyFiftyLeft: MATCH_CONFIG.HELPER_FIFTY_FIFTY_USES,
+      helperStepHintLeft: MATCH_CONFIG.HELPER_STEP_HINT_USES,
+      usedHelpersByQuestion: new Map<string, Set<MathHelperType>>(),
       disconnectedAt: null,
     }
 
@@ -449,6 +457,9 @@ export class RoomManager {
       lastMoveAt: now,
       activeQuestionId: null,
       attemptedQuestionIds: new Set<string>(),
+      helperFiftyFiftyLeft: MATCH_CONFIG.HELPER_FIFTY_FIFTY_USES,
+      helperStepHintLeft: MATCH_CONFIG.HELPER_STEP_HINT_USES,
+      usedHelpersByQuestion: new Map<string, Set<MathHelperType>>(),
       disconnectedAt: null,
     }
 
@@ -680,6 +691,9 @@ export class RoomManager {
       p.lastShotAt = 0
       p.activeQuestionId = null
       p.attemptedQuestionIds.clear()
+      p.helperFiftyFiftyLeft = MATCH_CONFIG.HELPER_FIFTY_FIFTY_USES
+      p.helperStepHintLeft = MATCH_CONFIG.HELPER_STEP_HINT_USES
+      p.usedHelpersByQuestion.clear()
     }
 
     return { ok: true, snapshot: this.buildSnapshot(room) }
@@ -940,6 +954,117 @@ export class RoomManager {
       code: 'MANUAL_ROLL_FORBIDDEN',
       message: 'ต้องรอให้จบ Combat Round ก่อนจึงจะเข้าสู่ช่วง Math Challenge อัตโนมัติ',
     }
+  }
+
+  useMathHelper(
+    roomCode: string,
+    playerId: string,
+    questionId: string,
+    helper: MathHelperType,
+  ):
+    | { ok: true; payload: MathHelperPayload }
+    | { ok: false; code: string; message: string } {
+    const room = this.rooms.get(roomCode)
+    if (!room) return { ok: false, code: 'ROOM_NOT_FOUND', message: 'ไม่พบห้อง' }
+    if (room.phase !== 'playing') {
+      return { ok: false, code: 'MATCH_NOT_ACTIVE', message: 'ไม่อยู่ในช่วงแข่งขัน' }
+    }
+    if (room.roundState !== 'MATH_CHALLENGE' && room.roundState !== 'ANSWER_SUBMITTED') {
+      return { ok: false, code: 'INVALID_ROUND_STATE', message: 'ใช้ตัวช่วยได้เฉพาะตอนตอบโจทย์คณิตเท่านั้น' }
+    }
+    const player = room.players.get(playerId)
+    if (!player || !player.connected) {
+      return { ok: false, code: 'PLAYER_NOT_FOUND', message: 'ไม่พบผู้เล่น' }
+    }
+    if (player.attemptedQuestionIds.has(questionId) || room.roundAnsweredPlayerIds.has(playerId)) {
+      return { ok: false, code: 'ALREADY_ANSWERED', message: 'คุณส่งคำตอบข้อนี้ไปแล้ว' }
+    }
+    const activeQId = room.activeRoundQuestionId ?? player.activeQuestionId
+    if (!activeQId || activeQId !== questionId) {
+      return { ok: false, code: 'QUESTION_MISMATCH', message: 'โจทย์ไม่ตรงกับรอบปัจจุบัน' }
+    }
+    const question = QUESTION_BY_ID.get(questionId)
+    if (!question) {
+      return { ok: false, code: 'QUESTION_NOT_FOUND', message: 'ไม่พบข้อมูลโจทย์' }
+    }
+
+    let usedSet = player.usedHelpersByQuestion.get(questionId)
+    if (!usedSet) {
+      usedSet = new Set<MathHelperType>()
+      player.usedHelpersByQuestion.set(questionId, usedSet)
+    }
+
+    if (helper === 'formula') {
+      usedSet.add('formula')
+      return {
+        ok: true,
+        payload: {
+          questionId,
+          helper: 'formula',
+          formulaHint: question.formulaHint,
+          remainingUses: {
+            fifty_fifty: player.helperFiftyFiftyLeft,
+            step_hint: player.helperStepHintLeft,
+          },
+        },
+      }
+    }
+
+    if (helper === 'fifty_fifty') {
+      if (usedSet.has('fifty_fifty')) {
+        return { ok: false, code: 'HELPER_ALREADY_USED', message: 'ใช้ตัวช่วยตัดช้อยส์ 50:50 ในข้อนี้ไปแล้ว' }
+      }
+      if (player.helperFiftyFiftyLeft <= 0) {
+        return { ok: false, code: 'HELPER_EXHAUSTED', message: 'ตัวช่วย 50:50 หมดแล้วในแมตช์นี้' }
+      }
+      player.helperFiftyFiftyLeft -= 1
+      usedSet.add('fifty_fifty')
+      const wrongIndices = [0, 1, 2, 3].filter((idx) => idx !== question.correctIndex)
+      // Pick 2 distinct wrong indices using room RNG
+      const firstPick = Math.floor(this.rngFn() * wrongIndices.length)
+      const [first] = wrongIndices.splice(firstPick, 1)
+      const secondPick = Math.floor(this.rngFn() * wrongIndices.length)
+      const [second] = wrongIndices.splice(secondPick, 1)
+      const eliminatedIndices = [first, second].sort((a, b) => a - b)
+
+      return {
+        ok: true,
+        payload: {
+          questionId,
+          helper: 'fifty_fifty',
+          eliminatedIndices,
+          remainingUses: {
+            fifty_fifty: player.helperFiftyFiftyLeft,
+            step_hint: player.helperStepHintLeft,
+          },
+        },
+      }
+    }
+
+    if (helper === 'step_hint') {
+      if (usedSet.has('step_hint')) {
+        return { ok: false, code: 'HELPER_ALREADY_USED', message: 'ใช้ตัวช่วยแนวคิดเริ่มต้นในข้อนี้ไปแล้ว' }
+      }
+      if (player.helperStepHintLeft <= 0) {
+        return { ok: false, code: 'HELPER_EXHAUSTED', message: 'ตัวช่วยแนวคิดเริ่มต้นหมดแล้วในแมตช์นี้' }
+      }
+      player.helperStepHintLeft -= 1
+      usedSet.add('step_hint')
+      return {
+        ok: true,
+        payload: {
+          questionId,
+          helper: 'step_hint',
+          stepHint: getQuestionStepHint(question),
+          remainingUses: {
+            fifty_fifty: player.helperFiftyFiftyLeft,
+            step_hint: player.helperStepHintLeft,
+          },
+        },
+      }
+    }
+
+    return { ok: false, code: 'INVALID_HELPER', message: 'ไม่พบตัวช่วยที่เลือก' }
   }
 
   submitAnswer(

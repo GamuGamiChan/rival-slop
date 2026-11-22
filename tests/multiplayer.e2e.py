@@ -27,10 +27,10 @@ with open("shared/questions.ts", "r", encoding="utf-8") as f:
     q_src = f.read()
 
 PROMPT_TO_ANSWER = {
-    m.group(1): int(m.group(2))
-    for m in re.finditer(r"prompt:\s*'([^']+)'[\s\S]*?correctIndex:\s*([0-3])", q_src)
+    (m.group(1) or m.group(2)): int(m.group(3))
+    for m in re.finditer(r"""prompt:\s*(?:'([^']+)'|"([^"]+)")[\s\S]*?correctIndex:\s*([0-3])""", q_src)
 }
-assert len(PROMPT_TO_ANSWER) == 48, f"Expected 48 parsed prompts, got {len(PROMPT_TO_ANSWER)}"
+assert len(PROMPT_TO_ANSWER) == 84, f"Expected 84 parsed prompts, got {len(PROMPT_TO_ANSWER)}"
 
 
 def run_e2e():

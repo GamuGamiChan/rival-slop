@@ -21,8 +21,8 @@ os.makedirs(SHOT_DIR, exist_ok=True)
 with open("shared/questions.ts", "r", encoding="utf-8") as f:
     q_src = f.read()
 ANS = {
-    m.group(1): int(m.group(2))
-    for m in re.finditer(r"prompt:\s*'([^']+)'[\s\S]*?correctIndex:\s*([0-3])", q_src)
+    (m.group(1) or m.group(2)): int(m.group(3))
+    for m in re.finditer(r"""prompt:\s*(?:'([^']+)'|"([^"]+)")[\s\S]*?correctIndex:\s*([0-3])""", q_src)
 }
 
 page_errors = []
@@ -209,10 +209,25 @@ with sync_playwright() as p:
     page.mouse.click(640, 360)
     print("      -> Wrong answer confiscated weapon (NO WEAPON EQUIPPED / ∞ FISTS melee active) and deducted -300 PTS!", flush=True)
 
-    print("[QA 8/8] Waiting for Round 2 Combat Round to end -> Auto Math Challenge -> Testing CORRECT ANSWER (+100 PTS + 8-Weapon Pool Roll)...", flush=True)
+    print("[QA 8/8] Waiting for Round 2 Combat Round to end -> Auto Math Challenge -> Testing 3 MATH HELPERS + CORRECT ANSWER (+100 PTS + 8-Weapon Pool Roll)...", flush=True)
     page.wait_for_selector("#math-terminal-modal[data-math-phase='QUESTION_ACTIVE']", timeout=32000)
     q2 = page.inner_text("#math-question-prompt").strip()
-    page.click(f"#btn-math-choice-{ANS[q2]}")
+    correct_idx = ANS[q2]
+
+    # Verify all 3 Math Helpers (Formula, Step Hint, 50:50 Cut) work cleanly
+    page.click("#btn-helper-formula")
+    page.wait_for_selector("#math-formula-hint-box", timeout=4000)
+    page.click("#btn-helper-step")
+    page.wait_for_selector("#math-step-hint-box", timeout=4000)
+    page.click("#btn-helper-5050")
+    page.wait_for_function(
+        "() => document.querySelectorAll('[id^=\"btn-math-choice-\"][data-eliminated=\"true\"]').length === 2",
+        polling=80,
+        timeout=4000,
+    )
+    assert page.locator(f"#btn-math-choice-{correct_idx}").get_attribute("data-eliminated") == "false"
+
+    page.click(f"#btn-math-choice-{correct_idx}")
     page.wait_for_selector("#math-terminal-modal[data-math-phase='ANSWER_FEEDBACK']", timeout=6000)
     assert "CORRECT!" in page.inner_text("#math-answer-feedback")
     page.wait_for_selector("#weapon-roulette-stage", timeout=6000)

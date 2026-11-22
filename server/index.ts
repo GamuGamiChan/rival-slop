@@ -307,6 +307,22 @@ function handleClientMessage(session: ClientSession, msg: ClientMessage): void {
       break
     }
 
+    case 'USE_MATH_HELPER': {
+      if (!session.roomCode || !session.playerId) return
+      const res = manager.useMathHelper(
+        session.roomCode,
+        session.playerId,
+        msg.questionId,
+        msg.helper,
+      )
+      if (!res.ok) {
+        sendToSession(session, { type: 'ERROR', code: res.code, message: res.message })
+      } else {
+        sendToSession(session, { type: 'MATH_HELPER_RESULT', helper: res.payload })
+      }
+      break
+    }
+
     case 'RELOAD': {
       if (!session.roomCode || !session.playerId) return
       const res = manager.startReload(session.roomCode, session.playerId)

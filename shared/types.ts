@@ -49,11 +49,26 @@ export interface MathQuestion {
   difficulty: Difficulty
   topic: string
   formulaHint: string
+  stepHint?: string
   prompt: string
   choices: [string, string, string, string]
   correctIndex: 0 | 1 | 2 | 3
   explanation: string
   sourceRef: string
+}
+
+export type MathHelperType = 'formula' | 'fifty_fifty' | 'step_hint'
+
+export interface MathHelperPayload {
+  questionId: string
+  helper: MathHelperType
+  formulaHint?: string
+  eliminatedIndices?: number[]
+  stepHint?: string
+  remainingUses: {
+    fifty_fifty: number
+    step_hint: number
+  }
 }
 
 /** Sanitized question sent to clients — never leaks correctIndex or explanation prematurely */
@@ -295,6 +310,7 @@ export type ClientMessage =
   | { type: 'PLAYER_MOVE'; position: Vec3; yaw: number; pitch: number }
   | { type: 'REQUEST_QUESTION'; preferredDifficulty?: Difficulty }
   | { type: 'SUBMIT_ANSWER'; questionId: string; selectedIndex: number }
+  | { type: 'USE_MATH_HELPER'; questionId: string; helper: MathHelperType }
   | { type: 'SHOOT'; origin: Vec3; direction: Vec3 }
   | { type: 'USE_SKILL'; slot: SkillSlot; origin: Vec3; direction: Vec3 }
   | { type: 'RELOAD' }
@@ -336,6 +352,7 @@ export type ServerMessage =
       }>
     }
   | { type: 'QUESTION_ASSIGNED'; question: PublicMathQuestion }
+  | { type: 'MATH_HELPER_RESULT'; helper: MathHelperPayload }
   | { type: 'ANSWER_RESULT'; result: AnswerResultPayload }
   | { type: 'SHOT_FIRED'; shot: ShotEvent }
   | { type: 'SKILL_CAST'; cast: SkillCastPayload }
@@ -368,4 +385,6 @@ export const MATCH_CONFIG = {
   ANSWER_FEEDBACK_MS: 2200,
   WEAPON_REVEAL_MS: 2600,
   NEXT_ROUND_MS: 1000,
+  HELPER_FIFTY_FIFTY_USES: 3,
+  HELPER_STEP_HINT_USES: 3,
 } as const

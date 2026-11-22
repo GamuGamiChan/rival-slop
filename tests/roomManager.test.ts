@@ -632,4 +632,56 @@ describe('Authoritative RoomManager — Round-Synchronized Gameplay, Weapon Pena
       expect(creditsMd).toContain(baseName)
     }
   })
+
+  it('supports authoritative Math Helpers (Formula free, 50:50 eliminates 2 wrong choices, Step Hint) with usage limits', () => {
+    let now = 9_000_000
+    const mgr = new RoomManager(() => now, () => 0.35)
+    const p1 = mgr.createRoom('HelperTester')
+    const p2 = mgr.joinRoom(p1.roomCode, 'Opponent')
+    if (!p2.ok) throw new Error('join failed')
+
+    mgr.startMatch(p1.roomCode, p1.playerId)
+    now += MATCH_CONFIG.COUNTDOWN_SEC * 1000
+    mgr.tick()
+    now += MATCH_CONFIG.ROUND_START_MS
+    mgr.tick() // COMBAT_ACTIVE
+
+    advanceToMathChallenge(mgr, p1.roomCode, (ms) => {
+      now += ms
+    })
+
+    const room = mgr.getRoom(p1.roomCode)!
+    const q = QUESTION_BY_ID.get(room.activeRoundQuestionId!)!
+
+    // 1. Formula helper is free & does not consume limited uses
+    const fRes = mgr.useMathHelper(p1.roomCode, p1.playerId, q.id, 'formula')
+    expect(fRes.ok).toBe(true)
+    if (fRes.ok) {
+      expect(fRes.payload.formulaHint).toBe(q.formulaHint)
+      expect(fRes.payload.remainingUses.fifty_fifty).toBe(MATCH_CONFIG.HELPER_FIFTY_FIFTY_USES)
+      expect(fRes.payload.remainingUses.step_hint).toBe(MATCH_CONFIG.HELPER_STEP_HINT_USES)
+    }
+
+    // 2. 50:50 helper eliminates exactly 2 wrong indices (never correctIndex) and decrements uses
+    const cutRes = mgr.useMathHelper(p1.roomCode, p1.playerId, q.id, 'fifty_fifty')
+    expect(cutRes.ok).toBe(true)
+    if (cutRes.ok) {
+      expect(cutRes.payload.eliminatedIndices).toHaveLength(2)
+      expect(cutRes.payload.eliminatedIndices).not.toContain(q.correctIndex)
+      expect(new Set(cutRes.payload.eliminatedIndices).size).toBe(2)
+      expect(cutRes.payload.remainingUses.fifty_fifty).toBe(MATCH_CONFIG.HELPER_FIFTY_FIFTY_USES - 1)
+    }
+
+    // Duplicate 50:50 on the same question is rejected
+    const dupCut = mgr.useMathHelper(p1.roomCode, p1.playerId, q.id, 'fifty_fifty')
+    expect(dupCut.ok).toBe(false)
+
+    // 3. Step Hint helper returns setup clue and decrements uses
+    const stepRes = mgr.useMathHelper(p1.roomCode, p1.playerId, q.id, 'step_hint')
+    expect(stepRes.ok).toBe(true)
+    if (stepRes.ok) {
+      expect((stepRes.payload.stepHint ?? '').length).toBeGreaterThan(10)
+      expect(stepRes.payload.remainingUses.step_hint).toBe(MATCH_CONFIG.HELPER_STEP_HINT_USES - 1)
+    }
+  })
 })

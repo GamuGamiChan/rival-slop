@@ -1,4 +1,12 @@
-import type { AgentId, Difficulty, ServerMessage, SkillSlot, Team, Vec3 } from '../../shared/types.ts'
+import type {
+  AgentId,
+  Difficulty,
+  MathHelperType,
+  ServerMessage,
+  SkillSlot,
+  Team,
+  Vec3,
+} from '../../shared/types.ts'
 import { soundEngine } from '../game/sound.ts'
 import { loadSession, useGameStore } from '../store/useGameStore.ts'
 import { P2PAdapter } from './p2pAdapter.ts'
@@ -82,6 +90,9 @@ class MultiplayerClient {
         break
       case 'QUESTION_ASSIGNED':
         store.onQuestionAssigned(msg.question)
+        break
+      case 'MATH_HELPER_RESULT':
+        store.onMathHelperResult(msg.helper)
         break
       case 'ANSWER_RESULT':
         store.onAnswerResult(msg.result)
@@ -353,6 +364,16 @@ class MultiplayerClient {
       this.p2p.sendMessage({ type: 'SUBMIT_ANSWER', questionId, selectedIndex })
     } else {
       this.ws.sendRaw({ type: 'SUBMIT_ANSWER', questionId, selectedIndex })
+    }
+  }
+
+  useMathHelper(questionId: string, helper: MathHelperType): void {
+    if (this.mode === 'practice') {
+      this.practice.sendMessage({ type: 'USE_MATH_HELPER', questionId, helper })
+    } else if (this.mode === 'p2p') {
+      this.p2p.sendMessage({ type: 'USE_MATH_HELPER', questionId, helper })
+    } else if (this.mode === 'ws') {
+      this.ws.sendRaw({ type: 'USE_MATH_HELPER', questionId, helper })
     }
   }
 

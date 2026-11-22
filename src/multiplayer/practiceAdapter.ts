@@ -192,6 +192,16 @@ export class PracticeAdapter {
         break
       }
 
+      case 'USE_MATH_HELPER': {
+        const res = this.manager.useMathHelper(roomCode, playerId, msg.questionId, msg.helper)
+        if (!res.ok) {
+          this.onMessage?.({ type: 'ERROR', code: res.code, message: res.message })
+        } else {
+          this.onMessage?.({ type: 'MATH_HELPER_RESULT', helper: res.payload })
+        }
+        break
+      }
+
       case 'RELOAD': {
         const res = this.manager.startReload(roomCode, playerId)
         if (res.ok) this.emitSnapshot()

@@ -464,6 +464,17 @@ export class P2PAdapter {
         break
       }
 
+      case 'USE_MATH_HELPER': {
+        if (!senderId) return
+        const res = this.manager.useMathHelper(roomCode, senderId, msg.questionId, msg.helper)
+        if (!res.ok) {
+          reply({ type: 'ERROR', code: res.code, message: res.message })
+        } else {
+          reply({ type: 'MATH_HELPER_RESULT', helper: res.payload })
+        }
+        break
+      }
+
       case 'RELOAD': {
         if (!senderId) return
         const res = this.manager.startReload(roomCode, senderId)

@@ -1,18 +1,20 @@
 import { create } from 'zustand'
-import type {
-  AnswerResultPayload,
-  DamageTakenPayload,
-  HitConfirmPayload,
-  KillFeedItem,
-  MatchSummary,
-  MathHistoryEntry,
-  PlayerPublicState,
-  PublicMathQuestion,
-  RoomSnapshot,
-  ShotEvent,
-  SkillCastPayload,
-  Vec3,
-  WeaponId,
+import {
+  MATCH_CONFIG,
+  type AnswerResultPayload,
+  type DamageTakenPayload,
+  type HitConfirmPayload,
+  type KillFeedItem,
+  type MatchSummary,
+  type MathHelperPayload,
+  type MathHistoryEntry,
+  type PlayerPublicState,
+  type PublicMathQuestion,
+  type RoomSnapshot,
+  type ShotEvent,
+  type SkillCastPayload,
+  type Vec3,
+  type WeaponId,
 } from '../../shared/types.ts'
 
 export type ScreenMode = 'menu' | 'room' | 'lobby' | 'arena' | 'result'
@@ -221,6 +223,17 @@ const EMPTY_TUTORIAL: TutorialProgress = {
   solvedMath: false,
 }
 
+export interface MathHelperClientState {
+  questionId: string | null
+  formulaHint: string | null
+  eliminatedIndices: number[]
+  stepHint: string | null
+  remainingUses: {
+    fifty_fifty: number
+    step_hint: number
+  }
+}
+
 export interface GameState {
   screen: ScreenMode
   connectionStatus: ConnectionStatus
@@ -251,6 +264,7 @@ export interface GameState {
   lastAnswerResult: AnswerResultPayload | null
   mathModalOpen: boolean
   mathHistory: MathHistoryEntry[]
+  mathHelperState: MathHelperClientState
   weaponReveal: WeaponRevealState | null
   weaponPenalty: WeaponPenaltyState | null
   lastSkillBanner: (SkillCastPayload & { receivedAt: number }) | null
@@ -348,6 +362,7 @@ export interface GameState {
     }>,
   ) => void
   onQuestionAssigned: (question: PublicMathQuestion) => void
+  onMathHelperResult: (payload: MathHelperPayload) => void
   onAnswerResult: (result: AnswerResultPayload) => void
   onShotFired: (shot: ShotEvent) => void
   onSkillCast: (cast: SkillCastPayload) => void
@@ -359,6 +374,19 @@ export interface GameState {
   clearWeaponPenalty: () => void
   clearLastAnswer: () => void
   resetToMenu: () => void
+}
+
+function createInitialMathHelperState(): MathHelperClientState {
+  return {
+    questionId: null,
+    formulaHint: null,
+    eliminatedIndices: [],
+    stepHint: null,
+    remainingUses: {
+      fifty_fifty: MATCH_CONFIG.HELPER_FIFTY_FIFTY_USES,
+      step_hint: MATCH_CONFIG.HELPER_STEP_HINT_USES,
+    },
+  }
 }
 
 function screenForPhase(phase: RoomSnapshot['phase']): ScreenMode {
@@ -402,6 +430,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   lastAnswerResult: null,
   mathModalOpen: false,
   mathHistory: [],
+  mathHelperState: createInitialMathHelperState(),
   weaponReveal: null,
   weaponPenalty: null,
   lastSkillBanner: null,
@@ -878,6 +907,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   onQuestionAssigned: (question) => {
+    const curHelper = get().mathHelperState
     set({
       activeQuestion: question,
       submittedQuestion: null,
@@ -885,6 +915,31 @@ export const useGameStore = create<GameState>((set, get) => ({
       lastAnswerResult: null,
       mathModalOpen: true,
       mathFlowPhase: 'QUESTION_ACTIVE',
+      mathHelperState:
+        curHelper.questionId === question.id
+          ? curHelper
+          : {
+              questionId: question.id,
+              formulaHint: null,
+              eliminatedIndices: [],
+              stepHint: null,
+              remainingUses: curHelper.remainingUses,
+            },
+      errorMessage: null,
+    })
+  },
+
+  onMathHelperResult: (payload) => {
+    const cur = get().mathHelperState
+    const sameQuestion = cur.questionId === payload.questionId
+    set({
+      mathHelperState: {
+        questionId: payload.questionId,
+        formulaHint: payload.formulaHint ?? (sameQuestion ? cur.formulaHint : null),
+        eliminatedIndices: payload.eliminatedIndices ?? (sameQuestion ? cur.eliminatedIndices : []),
+        stepHint: payload.stepHint ?? (sameQuestion ? cur.stepHint : null),
+        remainingUses: payload.remainingUses,
+      },
       errorMessage: null,
     })
   },
@@ -1055,6 +1110,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       mathModalOpen: false,
       mathFlowPhase: 'COMBAT_READY',
       mathHistory: [],
+      mathHelperState: createInitialMathHelperState(),
       weaponReveal: null,
       weaponPenalty: null,
       lastSkillBanner: null,
