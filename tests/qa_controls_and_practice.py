@@ -128,12 +128,30 @@ with sync_playwright() as p:
         page.locator("#hud-aim-indicator").wait_for(state="detached", timeout=4000)
     print("      -> Left Ctrl & Right Ctrl Aim Mode (0 rotation, 0 auto-move) verified cleanly!", flush=True)
 
-    print("[QA 6/8] Testing Direct Shooting, Reload (R), [H] Controls HUD & Intentional Pause/Resume...", flush=True)
+    print("[QA 6/8] Testing Direct Shooting (verifying ZERO position teleport after walking >2.5m!), Reload (R), [H] Controls HUD & Intentional Pause/Resume...", flush=True)
+    # Walk forward > 2.5m away from spawn (-15.5) so we exceed the old 1.5m drift threshold!
+    page.keyboard.down("KeyW")
+    for _ in range(12):
+        page.evaluate("() => new Promise(r => requestAnimationFrame(r))")
+    page.keyboard.up("KeyW")
+    for _ in range(6):
+        page.evaluate("() => new Promise(r => requestAnimationFrame(r))")
+    t_before_shot = page.evaluate("window.__MATH_RIVALS_TELEMETRY__()")
+    dist_from_spawn = abs(t_before_shot["z"] - (-15.5))
+    assert dist_from_spawn > 2.0, f"Expected player >2.0m from spawn before shoot test, got {dist_from_spawn:.2f}m"
+
     ammo_before = int(page.inner_text("#hud-ammo-value").strip())
     page.mouse.click(640, 360)
-    page.wait_for_timeout(250)
+    page.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
+    t_after_shot = page.evaluate("window.__MATH_RIVALS_TELEMETRY__()")
     ammo_after = int(page.inner_text("#hud-ammo-value").strip())
     assert ammo_after < ammo_before, f"LMB click did not shoot: {ammo_before} -> {ammo_after}"
+    assert abs(t_after_shot["x"] - t_before_shot["x"]) < 1e-4 and abs(t_after_shot["z"] - t_before_shot["z"]) < 1e-4, (
+        f"Shooting teleported player position! Before={t_before_shot} After={t_after_shot}"
+    )
+    assert abs(t_after_shot["yaw"] - t_before_shot["yaw"]) < 1e-6, (
+        f"Shooting snapped camera yaw! Before={t_before_shot} After={t_after_shot}"
+    )
 
     page.keyboard.press("KeyR")
     page.wait_for_timeout(1400)

@@ -777,6 +777,9 @@ export const useGameStore = create<GameState>((set, get) => ({
           if (!sync) return p
           return {
             ...p,
+            position: sync.position,
+            yaw: sync.yaw,
+            pitch: sync.pitch,
             hp: sync.hp,
             maxHp: sync.maxHp,
             alive: sync.alive,

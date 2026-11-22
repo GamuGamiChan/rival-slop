@@ -118,14 +118,10 @@ export function PlayerController() {
       const me = selectMyPlayer(state)
       if (!me || !me.alive) return
 
-      const drift = Math.hypot(
-        posRef.current.x - me.position.x,
-        posRef.current.y - me.position.y,
-        posRef.current.z - me.position.z,
-      )
-      if (prevPhaseRef.current !== 'playing' || drift > 1.5) {
+      if (prevPhaseRef.current !== 'playing') {
         posRef.current = { ...me.position }
         yawRef.current = me.yaw
+        prevPhaseRef.current = 'playing'
       }
       const dir = computeAimDirection()
       const origin = {
@@ -171,14 +167,10 @@ export function PlayerController() {
     if (now - lastShotClientAtRef.current < effectiveFireRate) return
     lastShotClientAtRef.current = now
 
-    const drift = Math.hypot(
-      posRef.current.x - me.position.x,
-      posRef.current.y - me.position.y,
-      posRef.current.z - me.position.z,
-    )
-    if (prevPhaseRef.current !== 'playing' || drift > 1.5) {
+    if (prevPhaseRef.current !== 'playing') {
       posRef.current = { ...me.position }
       yawRef.current = me.yaw
+      prevPhaseRef.current = 'playing'
     }
     const dir = computeAimDirection()
     const origin = {
@@ -186,6 +178,7 @@ export function PlayerController() {
       y: posRef.current.y + PLAYER_DIMENSIONS.eyeHeight,
       z: posRef.current.z,
     }
+    multiplayerClient.sendMove(posRef.current, yawRef.current, pitchRef.current)
 
     const barriers: ArenaBox[] = []
     if (state.room) {
