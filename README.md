@@ -153,9 +153,9 @@ npm run dev:full
 ### วิธีที่ 1 (ง่ายสุด — ฟรี 100% ไม่ต้องตั้งค่า Backend แยก): GitHub Pages หรือ Vercel 1 คลิก!
 ตัวเกมมีระบบ **Auto Zero-Config WebRTC P2P (`PeerJS` + Host-Authoritative `RoomManager`)** ในตัว ทำให้ทำงานได้ทันทีบน Static Host โดยไม่ต้องตั้ง Environment Variables หรือเปิด Render/Supabase แยก:
 
-- **GitHub Pages (Live อัตโนมัติผ่าน GitHub Actions):**
+- **GitHub Pages (Live พร้อมเล่นทันทีผ่านสาขา `gh-pages`):**
   - เปิดเล่นได้ทันทีที่: `https://khunsiwa.github.io/-rival/`
-  - ทุกครั้งที่ push ขึ้น `main` ไฟล์ [`.github/workflows/deploy-pages.yml`](.github/workflows/deploy-pages.yml) จะรันเทสต์ Build และอัปเดตหน้าเว็บให้อัตโนมัติ
+  - Deploy จากไฟล์ production build บนสาขา `gh-pages` (และมี [`.github/workflows/deploy-pages.yml`](.github/workflows/deploy-pages.yml) ให้กดรัน manual ได้เมื่อเปิดใช้งาน GitHub Actions)
 - **Vercel (1-Click Import → Deploy):**
   - เข้า [vercel.com](https://vercel.com) → **Add New Project** → Import `KhunSiwa/-rival` → กด **Deploy** ได้เลยทันทีโดยไม่ต้องใส่ Env Var ใดๆ!
 

@@ -1,8 +1,8 @@
 name: Deploy MATH RIVALS 3D to GitHub Pages
 
+# Live site deploys from the `gh-pages` branch (works without GitHub Actions minutes).
+# You can also trigger this workflow manually if GitHub Actions is enabled on your account.
 on:
-  push:
-    branches: ['main']
   workflow_dispatch:
 
 permissions:
