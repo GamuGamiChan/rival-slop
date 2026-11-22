@@ -8,29 +8,53 @@ import { selectMyPlayer, useGameStore } from '../store/useGameStore.ts'
 function PistolMesh({ accent }: { accent: string }) {
   return (
     <group>
-      <mesh position={[0, 0.02, -0.1]}>
-        <boxGeometry args={[0.068, 0.072, 0.34]} />
-        <meshStandardMaterial color="#e2e8f0" metalness={0.55} roughness={0.28} />
+      {/* Brushed titanium top slide */}
+      <mesh position={[0, 0.024, -0.11]}>
+        <boxGeometry args={[0.064, 0.056, 0.34]} />
+        <meshStandardMaterial color="#cbd5e1" metalness={0.72} roughness={0.26} />
       </mesh>
-      <mesh position={[0, -0.025, -0.07]}>
-        <boxGeometry args={[0.056, 0.05, 0.28]} />
-        <meshStandardMaterial color="#1e293b" metalness={0.7} roughness={0.35} />
+      {/* Chamfered rear sight posts */}
+      <mesh position={[-0.02, 0.058, 0.03]}>
+        <boxGeometry args={[0.01, 0.014, 0.014]} />
+        <meshStandardMaterial color={accent} emissive={accent} emissiveIntensity={2.5} />
       </mesh>
-      <mesh position={[0, -0.095, 0.04]} rotation={[0.25, 0, 0]}>
-        <boxGeometry args={[0.05, 0.13, 0.075]} />
-        <meshStandardMaterial color="#1e293b" roughness={0.6} />
+      <mesh position={[0.02, 0.058, 0.03]}>
+        <boxGeometry args={[0.01, 0.014, 0.014]} />
+        <meshStandardMaterial color={accent} emissive={accent} emissiveIntensity={2.5} />
       </mesh>
-      <mesh position={[0.037, 0.025, -0.12]}>
-        <boxGeometry args={[0.008, 0.016, 0.28]} />
-        <meshStandardMaterial color={accent} emissive={accent} emissiveIntensity={3.2} />
+      {/* Front glowing sight bead */}
+      <mesh position={[0, 0.058, -0.26]}>
+        <boxGeometry args={[0.01, 0.014, 0.014]} />
+        <meshStandardMaterial color="#f8fafc" emissive={accent} emissiveIntensity={3.0} />
       </mesh>
-      <mesh position={[-0.037, 0.025, -0.12]}>
-        <boxGeometry args={[0.008, 0.016, 0.28]} />
-        <meshStandardMaterial color={accent} emissive={accent} emissiveIntensity={3.2} />
+      {/* Lower polymer-steel frame & under-rail */}
+      <mesh position={[0, -0.022, -0.08]}>
+        <boxGeometry args={[0.054, 0.044, 0.29]} />
+        <meshStandardMaterial color="#1e293b" metalness={0.65} roughness={0.4} />
       </mesh>
-      <mesh position={[0, 0.022, -0.275]}>
-        <boxGeometry args={[0.036, 0.034, 0.02]} />
-        <meshStandardMaterial color={accent} emissive={accent} emissiveIntensity={4} />
+      {/* Trigger guard */}
+      <mesh position={[0, -0.06, -0.03]}>
+        <boxGeometry args={[0.026, 0.032, 0.08]} />
+        <meshStandardMaterial color="#0f172a" metalness={0.7} roughness={0.35} />
+      </mesh>
+      {/* Ergonomic angled grip with baseplate */}
+      <mesh position={[0, -0.098, 0.045]} rotation={[0.26, 0, 0]}>
+        <boxGeometry args={[0.048, 0.135, 0.072]} />
+        <meshStandardMaterial color="#1e293b" roughness={0.55} />
+      </mesh>
+      {/* Dual plasma energy side rails */}
+      <mesh position={[0.035, 0.022, -0.13]}>
+        <boxGeometry args={[0.008, 0.014, 0.25]} />
+        <meshStandardMaterial color={accent} emissive={accent} emissiveIntensity={2.4} />
+      </mesh>
+      <mesh position={[-0.035, 0.022, -0.13]}>
+        <boxGeometry args={[0.008, 0.014, 0.25]} />
+        <meshStandardMaterial color={accent} emissive={accent} emissiveIntensity={2.4} />
+      </mesh>
+      {/* Recessed precision barrel tip */}
+      <mesh position={[0, 0.022, -0.29]} rotation={[Math.PI / 2, 0, 0]}>
+        <cylinderGeometry args={[0.014, 0.016, 0.05, 10]} />
+        <meshStandardMaterial color="#334155" metalness={0.85} roughness={0.2} />
       </mesh>
     </group>
   )
@@ -47,7 +71,7 @@ function RevolverMesh({ accent }: { accent: string }) {
       {/* Gold/amber energy top rib */}
       <mesh position={[0, 0.082, -0.22]}>
         <boxGeometry args={[0.024, 0.014, 0.36]} />
-        <meshStandardMaterial color={accent} emissive={accent} emissiveIntensity={3.4} />
+        <meshStandardMaterial color={accent} emissive={accent} emissiveIntensity={2.6} />
       </mesh>
       {/* Iconic spinning cylinder drum */}
       <mesh position={[0, 0.01, -0.05]} rotation={[Math.PI / 2, 0, 0]}>
@@ -57,7 +81,7 @@ function RevolverMesh({ accent }: { accent: string }) {
       {/* Glowing energy chambers around cylinder */}
       <mesh position={[0, 0.01, -0.05]} rotation={[Math.PI / 2, 0, 0]}>
         <cylinderGeometry args={[0.051, 0.051, 0.025, 10]} />
-        <meshStandardMaterial color={accent} emissive={accent} emissiveIntensity={3.6} />
+        <meshStandardMaterial color={accent} emissive={accent} emissiveIntensity={2.8} />
       </mesh>
       {/* Angled ergonomic hand-cannon grip */}
       <mesh position={[0, -0.095, 0.045]} rotation={[0.32, 0, 0]}>
@@ -84,7 +108,7 @@ function SmgMesh({ accent }: { accent: string }) {
       {/* Suppressor neon collar */}
       <mesh position={[0, 0.025, -0.34]} rotation={[Math.PI / 2, 0, 0]}>
         <cylinderGeometry args={[0.028, 0.028, 0.024, 12]} />
-        <meshStandardMaterial color={accent} emissive={accent} emissiveIntensity={3.8} />
+        <meshStandardMaterial color={accent} emissive={accent} emissiveIntensity={2.8} />
       </mesh>
       {/* Extended slanted SMG stick mag */}
       <mesh position={[0, -0.1, -0.19]} rotation={[-0.22, 0, 0]}>
@@ -94,11 +118,11 @@ function SmgMesh({ accent }: { accent: string }) {
       {/* Teal speed stripes */}
       <mesh position={[0.04, 0.03, -0.15]}>
         <boxGeometry args={[0.008, 0.018, 0.32]} />
-        <meshStandardMaterial color={accent} emissive={accent} emissiveIntensity={3.6} />
+        <meshStandardMaterial color={accent} emissive={accent} emissiveIntensity={2.6} />
       </mesh>
       <mesh position={[-0.04, 0.03, -0.15]}>
         <boxGeometry args={[0.008, 0.018, 0.32]} />
-        <meshStandardMaterial color={accent} emissive={accent} emissiveIntensity={3.6} />
+        <meshStandardMaterial color={accent} emissive={accent} emissiveIntensity={2.6} />
       </mesh>
     </group>
   )
@@ -107,37 +131,57 @@ function SmgMesh({ accent }: { accent: string }) {
 function RifleMesh({ accent }: { accent: string }) {
   return (
     <group>
-      <mesh position={[0, 0.01, -0.16]}>
-        <boxGeometry args={[0.078, 0.095, 0.54]} />
-        <meshStandardMaterial color="#1e293b" metalness={0.65} roughness={0.3} />
+      {/* Main gunmetal receiver body */}
+      <mesh position={[0, 0.01, -0.14]}>
+        <boxGeometry args={[0.078, 0.095, 0.52]} />
+        <meshStandardMaterial color="#1f2f47" metalness={0.68} roughness={0.3} />
       </mesh>
-      <mesh position={[0, 0.052, -0.18]}>
-        <boxGeometry args={[0.064, 0.036, 0.48]} />
-        <meshStandardMaterial color="#f1f5f9" metalness={0.45} roughness={0.25} />
+      {/* Brushed silver upper picatinny shroud */}
+      <mesh position={[0, 0.056, -0.18]}>
+        <boxGeometry args={[0.062, 0.032, 0.46]} />
+        <meshStandardMaterial color="#e2e8f0" metalness={0.55} roughness={0.26} />
       </mesh>
-      <mesh position={[0, 0.022, -0.49]} rotation={[Math.PI / 2, 0, 0]}>
-        <cylinderGeometry args={[0.018, 0.022, 0.24, 12]} />
-        <meshStandardMaterial color="#334155" metalness={0.85} roughness={0.2} />
+      {/* Forward vented handguard */}
+      <mesh position={[0, 0.018, -0.36]}>
+        <boxGeometry args={[0.068, 0.072, 0.24]} />
+        <meshStandardMaterial color="#334155" metalness={0.72} roughness={0.28} />
       </mesh>
-      <mesh position={[0, 0.098, -0.08]}>
-        <boxGeometry args={[0.05, 0.048, 0.085]} />
-        <meshStandardMaterial color="#0b1120" metalness={0.8} roughness={0.25} />
+      {/* Precision fluted barrel + muzzle brake */}
+      <mesh position={[0, 0.022, -0.54]} rotation={[Math.PI / 2, 0, 0]}>
+        <cylinderGeometry args={[0.016, 0.02, 0.24, 12]} />
+        <meshStandardMaterial color="#475569" metalness={0.85} roughness={0.2} />
       </mesh>
+      <mesh position={[0, 0.022, -0.64]} rotation={[Math.PI / 2, 0, 0]}>
+        <cylinderGeometry args={[0.024, 0.022, 0.06, 10]} />
+        <meshStandardMaterial color="#0f172a" metalness={0.85} roughness={0.22} />
+      </mesh>
+      {/* Holographic Reflex Optic Housing + Reticle Glass */}
       <mesh position={[0, 0.1, -0.08]}>
-        <boxGeometry args={[0.036, 0.032, 0.01]} />
-        <meshStandardMaterial color={accent} emissive={accent} emissiveIntensity={2.8} transparent opacity={0.5} />
+        <boxGeometry args={[0.054, 0.052, 0.095]} />
+        <meshStandardMaterial color="#0f172a" metalness={0.8} roughness={0.25} />
       </mesh>
-      <mesh position={[0.041, 0.02, -0.22]}>
-        <boxGeometry args={[0.008, 0.018, 0.4]} />
-        <meshStandardMaterial color={accent} emissive={accent} emissiveIntensity={3.5} />
+      <mesh position={[0, 0.104, -0.08]}>
+        <boxGeometry args={[0.036, 0.032, 0.012]} />
+        <meshStandardMaterial color={accent} emissive={accent} emissiveIntensity={2.2} transparent opacity={0.48} />
       </mesh>
-      <mesh position={[-0.041, 0.02, -0.22]}>
-        <boxGeometry args={[0.008, 0.018, 0.4]} />
-        <meshStandardMaterial color={accent} emissive={accent} emissiveIntensity={3.5} />
+      {/* Tactical foregrip */}
+      <mesh position={[0, -0.056, -0.36]}>
+        <boxGeometry args={[0.032, 0.082, 0.04]} />
+        <meshStandardMaterial color="#0f172a" roughness={0.55} />
       </mesh>
-      <mesh position={[0, -0.09, -0.16]} rotation={[0.16, 0, 0]}>
-        <boxGeometry args={[0.046, 0.14, 0.072]} />
+      {/* Curved energy rifle magazine */}
+      <mesh position={[0, -0.095, -0.18]} rotation={[0.18, 0, 0]}>
+        <boxGeometry args={[0.044, 0.15, 0.07]} />
         <meshStandardMaterial color="#1e293b" metalness={0.6} roughness={0.35} />
+      </mesh>
+      {/* Glowing side power conduits */}
+      <mesh position={[0.042, 0.022, -0.22]}>
+        <boxGeometry args={[0.008, 0.016, 0.38]} />
+        <meshStandardMaterial color={accent} emissive={accent} emissiveIntensity={2.4} />
+      </mesh>
+      <mesh position={[-0.042, 0.022, -0.22]}>
+        <boxGeometry args={[0.008, 0.016, 0.38]} />
+        <meshStandardMaterial color={accent} emissive={accent} emissiveIntensity={2.4} />
       </mesh>
     </group>
   )
@@ -311,6 +355,7 @@ export function WeaponViewmodel() {
   const bobPhaseRef = useRef(0)
   const prevPosRef = useRef(new THREE.Vector3())
   const adsLerpRef = useRef(0)
+  const sprintLerpRef = useRef(0)
 
   const weapon: WeaponId | null = useGameStore((s) => selectMyPlayer(s)?.weapon ?? null)
   const alive = useGameStore((s) => selectMyPlayer(s)?.alive ?? false)
@@ -339,36 +384,51 @@ export function WeaponViewmodel() {
     )
     prevPosRef.current.copy(camera.position)
     const speedNorm = Math.min(1, moveDist / Math.max(0.001, dt * 8))
-    bobPhaseRef.current += dt * (4 + speedNorm * 8)
+    bobPhaseRef.current += dt * (4 + speedNorm * 8.5)
 
     const targetAds = state.isAdsZoom ? 1 : 0
-    adsLerpRef.current += (targetAds - adsLerpRef.current) * Math.min(1, dt * 14)
+    adsLerpRef.current += (targetAds - adsLerpRef.current) * Math.min(1, dt * 15)
+
+    const targetSprint = state.isSprinting && !state.isAdsZoom ? 1 : 0
+    sprintLerpRef.current += (targetSprint - sprintLerpRef.current) * Math.min(1, dt * 12)
 
     const msSinceShot = performance.now() - state.lastShotVisualAt
-    const recoil = msSinceShot < 160 ? Math.pow(1 - msSinceShot / 160, 2) : 0
+    const recoil = msSinceShot < 165 ? Math.pow(1 - msSinceShot / 165, 2) : 0
 
     const nowServer = Date.now() + state.clockOffsetMs
     const isReloading = Boolean(me?.reloadingUntil && nowServer < me.reloadingUntil)
-    const reloadTilt = isReloading ? -0.58 : 0
-    const reloadDrop = isReloading ? -0.1 : 0
+    const spec = me?.weapon ? WEAPONS[me.weapon] : null
+    const reloadFrac =
+      isReloading && spec && me?.reloadingUntil
+        ? Math.max(0, Math.min(1, 1 - (me.reloadingUntil - nowServer) / spec.reloadMs))
+        : 0
+    // Smooth sine-bell reload tilt (drops cleanly during mag swap, snaps back up crisply)
+    const reloadCurve = isReloading ? Math.sin(reloadFrac * Math.PI) : 0
+    const reloadTilt = -0.68 * reloadCurve
+    const reloadDrop = -0.12 * reloadCurve
 
     const baseX = THREE.MathUtils.lerp(0.24, 0.0, adsLerpRef.current)
-    const baseY = THREE.MathUtils.lerp(-0.21, -0.145, adsLerpRef.current)
-    const baseZ = THREE.MathUtils.lerp(-0.38, -0.32, adsLerpRef.current)
+    const baseY = THREE.MathUtils.lerp(-0.21, -0.142, adsLerpRef.current) - sprintLerpRef.current * 0.045
+    const baseZ = THREE.MathUtils.lerp(-0.38, -0.31, adsLerpRef.current) + sprintLerpRef.current * 0.02
 
-    const bobX = Math.cos(bobPhaseRef.current) * 0.008 * speedNorm * (1 - adsLerpRef.current * 0.8)
-    const bobY = Math.abs(Math.sin(bobPhaseRef.current)) * 0.01 * speedNorm * (1 - adsLerpRef.current * 0.8)
+    const bobAmp = (1 - adsLerpRef.current * 0.85) * (1 + sprintLerpRef.current * 0.45)
+    const bobX = Math.cos(bobPhaseRef.current) * 0.008 * speedNorm * bobAmp
+    const bobY = Math.abs(Math.sin(bobPhaseRef.current)) * 0.011 * speedNorm * bobAmp
 
     pivot.position.set(baseX + bobX, baseY - bobY + reloadDrop + recoil * 0.018, baseZ + recoil * 0.075)
-    pivot.rotation.set(recoil * 0.16 + reloadTilt, isReloading ? 0.35 : 0, isReloading ? -0.25 : 0)
+    pivot.rotation.set(
+      recoil * 0.16 + reloadTilt - sprintLerpRef.current * 0.14,
+      0.38 * reloadCurve + sprintLerpRef.current * 0.24,
+      -0.28 * reloadCurve + sprintLerpRef.current * 0.12,
+    )
 
     if (muzzleRef.current) {
-      const flashVisible = msSinceShot < 65
+      const flashVisible = msSinceShot < 68
       muzzleRef.current.visible = flashVisible
       if (flashVisible) {
-        const s = 0.8 + (1 - msSinceShot / 65) * 0.7
+        const s = 0.75 + (1 - msSinceShot / 68) * 0.85
         muzzleRef.current.scale.set(s, s, s)
-        muzzleRef.current.rotation.z = msSinceShot * 0.25
+        muzzleRef.current.rotation.z = msSinceShot * 0.35
       }
     }
   })
@@ -379,7 +439,7 @@ export function WeaponViewmodel() {
 
   return (
     <group ref={rootRef} visible={!isAdsZoom || weapon !== 'sniper'}>
-      <pointLight position={[0.15, 0.25, -0.15]} intensity={2.0} distance={2.8} color="#dbeafe" />
+      <pointLight position={[0.15, 0.25, -0.15]} intensity={1.8} distance={2.8} color="#e2e8f0" />
       <group ref={weaponPivotRef}>
         {weapon === 'pistol' && <PistolMesh accent={spec.accentColor} />}
         {weapon === 'revolver' && <RevolverMesh accent={spec.accentColor} />}
@@ -390,9 +450,10 @@ export function WeaponViewmodel() {
         {weapon === 'lmg' && <LmgMesh accent={spec.accentColor} />}
         {weapon === 'sniper' && <SniperMesh accent={spec.accentColor} />}
 
+        {/* Multi-plane plasma muzzle flash */}
         <mesh ref={muzzleRef} position={[0, 0.025, muzzleZ]} visible={false}>
-          <octahedronGeometry args={[0.078, 0]} />
-          <meshBasicMaterial color={spec.accentColor} transparent opacity={0.92} />
+          <octahedronGeometry args={[0.085, 0]} />
+          <meshBasicMaterial color={spec.accentColor} transparent opacity={0.94} />
         </mesh>
       </group>
     </group>

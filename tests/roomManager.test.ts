@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { RoomManager } from '../server/roomManager.ts'
-import { PLAYER_DIMENSIONS } from '../shared/arena.ts'
+import { PLAYER_DIMENSIONS, resolvePlayerMovement } from '../shared/arena.ts'
 import { QUESTION_BY_ID } from '../shared/questions.ts'
 import { MATCH_CONFIG, SCORING } from '../shared/types.ts'
 import { rollRandomWeapon, WEAPON_IDS, WEAPONS } from '../shared/weapons.ts'
@@ -375,5 +375,18 @@ describe('Authoritative RoomManager — Functional & Security Verification', () 
     // Actions after match finished are rejected
     const lateQ = mgr.requestQuestion(p1.roomCode, p2.playerId)
     expect(lateQ.ok).toBe(false)
+  })
+
+  it('allows walking smoothly up the stepped central ramp onto the 2.0m center deck without jumping', () => {
+    let pos = { x: -11.5, y: 0, z: 0 }
+    let vy = 0
+    for (let i = 0; i < 60; i++) {
+      const desired = { x: pos.x + 0.22, y: pos.y - 0.1, z: 0 }
+      const res = resolvePlayerMovement(pos, desired, vy)
+      pos = res.position
+      vy = res.velocityY
+    }
+    expect(pos.x).toBeGreaterThan(-4)
+    expect(pos.y).toBeCloseTo(2.0, 2)
   })
 })

@@ -1,32 +1,114 @@
 import { useFrame, useThree } from '@react-three/fiber'
 import { useCallback, useEffect, useRef } from 'react'
 import * as THREE from 'three'
-import { PLAYER_DIMENSIONS, resolvePlayerMovement, type ArenaBox } from '../../shared/arena.ts'
-import type { SkillSlot } from '../../shared/types.ts'
+import {
+  PLAYER_DIMENSIONS,
+  raycastArenaObstacles,
+  raycastPlayerHitbox,
+  resolvePlayerMovement,
+  type ArenaBox,
+} from '../../shared/arena.ts'
+import type { SkillSlot, WeaponId } from '../../shared/types.ts'
 import { WEAPONS } from '../../shared/weapons.ts'
 import { multiplayerClient } from '../multiplayer/client.ts'
 import { selectMyPlayer, useGameStore } from '../store/useGameStore.ts'
+import { inputManager } from './inputManager.ts'
 import { soundEngine } from './sound.ts'
 
 const WALK_SPEED = 7.8
 const SPRINT_SPEED = 11.4
-const JUMP_VELOCITY = 8.4
+const GROUND_ACCEL = 64.0
+const GROUND_DECEL = 52.0
+const AIR_ACCEL = 28.0
+const AIR_DRAG = 4.0
+const JUMP_VELOCITY = 8.6
 const GRAVITY = 22.0
+const COYOTE_TIME_SEC = 0.12
+const JUMP_BUFFER_SEC = 0.12
 const DEFAULT_FOV = 75
+
+// Reusable scratch objects (zero per-frame / per-shot GC allocations)
+const _scratchEuler = new THREE.Euler(0, 0, 0, 'YXZ')
+const _scratchDir = new THREE.Vector3()
+const _scratchOffset = new THREE.Vector3()
+
+function weaponRecoilKick(weapon: WeaponId): number {
+  switch (weapon) {
+    case 'sniper':
+      return 0.042
+    case 'shotgun':
+      return 0.032
+    case 'revolver':
+      return 0.026
+    case 'burst':
+      return 0.015
+    case 'lmg':
+      return 0.011
+    case 'rifle':
+      return 0.01
+    case 'pistol':
+      return 0.01
+    case 'smg':
+      return 0.006
+  }
+}
+
+function aimFovForWeapon(weapon: WeaponId | null): number {
+  if (!weapon) return 60
+  if (weapon === 'sniper') return 30
+  if (weapon === 'shotgun') return 65
+  return Math.max(54, Math.min(62, WEAPONS[weapon].adsFov))
+}
 
 export function PlayerController() {
   const gl = useThree((s) => s.gl)
-  const getThreeState = useThree((s) => s.get)
-  const keysRef = useRef<Set<string>>(new Set())
-  const mouseDownRef = useRef(false)
+  const velXRef = useRef(0)
+  const velZRef = useRef(0)
   const velocityYRef = useRef(0)
   const groundedRef = useRef(true)
+  const coyoteTimerRef = useRef(0)
+  const jumpBufferRef = useRef(0)
   const posRef = useRef({ x: 0, y: 0, z: -26 })
   const yawRef = useRef(Math.PI)
   const pitchRef = useRef(0)
+  const recoilPitchRef = useRef(0)
   const lastShotClientAtRef = useRef(0)
   const prevAliveRef = useRef(true)
   const prevPhaseRef = useRef<string>('lobby')
+  const wasLockedRef = useRef(false)
+  const autoMathRequestedRef = useRef(false)
+  const cumulativeLookRef = useRef(0)
+  const cumulativeMoveRef = useRef(0)
+  const lastMoveSentAtRef = useRef(0)
+  const lastSentPosRef = useRef({ x: 0, y: 0, z: -26, yaw: Math.PI, pitch: 0 })
+
+  const computeAimDirection = useCallback(() => {
+    const clampedPitch = Math.max(
+      -Math.PI / 2 + 0.06,
+      Math.min(Math.PI / 2 - 0.06, pitchRef.current + recoilPitchRef.current),
+    )
+    _scratchEuler.set(clampedPitch, yawRef.current, 0, 'YXZ')
+    _scratchDir.set(0, 0, -1).applyEuler(_scratchEuler).normalize()
+    return { x: _scratchDir.x, y: _scratchDir.y, z: _scratchDir.z }
+  }, [])
+
+  const openMathQuiz = useCallback(() => {
+    const state = useGameStore.getState()
+    if (state.room?.phase !== 'playing') return
+    inputManager.resetAllInputs()
+    inputManager.releasePointerLockProgrammatically()
+    state.setAdsZoom(false)
+    state.setSprinting(false)
+    state.setPauseOpen(false)
+    state.setMathModalOpen(true)
+    if (
+      state.mathFlowPhase === 'COMBAT_READY' &&
+      !state.activeQuestion &&
+      !state.lastAnswerResult
+    ) {
+      multiplayerClient.requestQuestion()
+    }
+  }, [])
 
   const castSkill = useCallback(
     (slot: SkillSlot) => {
@@ -36,16 +118,25 @@ export function PlayerController() {
       const me = selectMyPlayer(state)
       if (!me || !me.alive) return
 
-      const activeCamera = getThreeState().camera
-      const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(activeCamera.quaternion).normalize()
+      const drift = Math.hypot(
+        posRef.current.x - me.position.x,
+        posRef.current.y - me.position.y,
+        posRef.current.z - me.position.z,
+      )
+      if (prevPhaseRef.current !== 'playing' || drift > 1.5) {
+        posRef.current = { ...me.position }
+        yawRef.current = me.yaw
+      }
+      const dir = computeAimDirection()
       const origin = {
         x: posRef.current.x,
         y: posRef.current.y + PLAYER_DIMENSIONS.eyeHeight,
         z: posRef.current.z,
       }
-      multiplayerClient.useSkill(slot, origin, { x: dir.x, y: dir.y, z: dir.z })
+      multiplayerClient.sendMove(posRef.current, yawRef.current, pitchRef.current)
+      multiplayerClient.useSkill(slot, origin, dir)
     },
-    [getThreeState],
+    [computeAimDirection],
   )
 
   const attemptShoot = useCallback(() => {
@@ -56,10 +147,7 @@ export function PlayerController() {
     if (!me || !me.alive) return
 
     if (!me.weapon) {
-      if (!state.mathModalOpen) {
-        if (document.pointerLockElement) document.exitPointerLock()
-        multiplayerClient.requestQuestion()
-      }
+      openMathQuiz()
       return
     }
 
@@ -68,9 +156,13 @@ export function PlayerController() {
     const serverNow = Date.now() + state.clockOffsetMs
     if (me.reloadingUntil && serverNow < me.reloadingUntil) return
 
+    // Strictly prevent firing when magazine is empty -> trigger clear reload feedback instead
     if (me.ammo <= 0) {
-      multiplayerClient.reload()
-      soundEngine.playReload()
+      if (now - lastShotClientAtRef.current >= 320) {
+        lastShotClientAtRef.current = now
+        multiplayerClient.reload()
+        soundEngine.playReload()
+      }
       return
     }
 
@@ -79,178 +171,211 @@ export function PlayerController() {
     if (now - lastShotClientAtRef.current < effectiveFireRate) return
     lastShotClientAtRef.current = now
 
-    const activeCamera = getThreeState().camera
-    const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(activeCamera.quaternion).normalize()
+    const drift = Math.hypot(
+      posRef.current.x - me.position.x,
+      posRef.current.y - me.position.y,
+      posRef.current.z - me.position.z,
+    )
+    if (prevPhaseRef.current !== 'playing' || drift > 1.5) {
+      posRef.current = { ...me.position }
+      yawRef.current = me.yaw
+    }
+    const dir = computeAimDirection()
     const origin = {
       x: posRef.current.x,
       y: posRef.current.y + PLAYER_DIMENSIONS.eyeHeight,
       z: posRef.current.z,
     }
 
+    const barriers: ArenaBox[] = []
+    if (state.room) {
+      for (const eff of state.room.worldEffects) {
+        if (eff.kind === 'barrier' && eff.box && eff.expiresAt > serverNow) {
+          barriers.push({
+            id: eff.id,
+            minX: eff.box.minX,
+            maxX: eff.box.maxX,
+            minY: eff.box.minY,
+            maxY: eff.box.maxY,
+            minZ: eff.box.minZ,
+            maxZ: eff.box.maxZ,
+            kind: 'glass',
+            accent: eff.ownerTeam,
+          })
+        }
+      }
+    }
+
+    const endpoints = []
+    const localPellets = spec.id === 'shotgun' ? spec.pellets : 1
+    for (let p = 0; p < localPellets; p++) {
+      let rayDir = dir
+      if (localPellets > 1 && spec.spreadRad > 0) {
+        const angle = (p / localPellets) * Math.PI * 2 + 0.35
+        const mag = 0.55 * spec.spreadRad
+        const rx = dir.x + Math.cos(angle) * mag
+        const ry = dir.y + Math.sin(angle) * mag * 0.75
+        const rz = dir.z + Math.sin(angle + 1.2) * mag
+        const l = Math.hypot(rx, ry, rz) || 1
+        rayDir = { x: rx / l, y: ry / l, z: rz / l }
+      }
+      let hitDist = raycastArenaObstacles(origin, rayDir, spec.range, barriers)
+      if (state.room) {
+        for (const candidate of state.room.players) {
+          if (candidate.id === me.id || candidate.team === me.team || !candidate.alive || !candidate.connected) continue
+          const live = state.liveTransforms.get(candidate.id)
+          const cPos = live ? live.position : candidate.position
+          const hit = raycastPlayerHitbox(origin, rayDir, cPos, hitDist)
+          if (hit && hit.distance < hitDist) {
+            hitDist = hit.distance
+          }
+        }
+      }
+      if (state.practiceMode) {
+        for (const target of state.practiceTargets) {
+          if (!target.alive) continue
+          const hit = raycastPlayerHitbox(origin, rayDir, target.position, hitDist)
+          if (hit && hit.distance < hitDist) {
+            hitDist = hit.distance
+          }
+        }
+      }
+      endpoints.push({
+        x: origin.x + rayDir.x * hitDist,
+        y: origin.y + rayDir.y * hitDist,
+        z: origin.z + rayDir.z * hitDist,
+      })
+    }
+
+    // Offset visual muzzle origin toward weapon barrel (zero GC allocation via scratch vectors)
+    _scratchEuler.set(pitchRef.current, yawRef.current, 0, 'YXZ')
+    _scratchOffset
+      .set(state.isAdsZoom ? 0.0 : 0.16, state.isAdsZoom ? -0.07 : -0.13, -0.48)
+      .applyEuler(_scratchEuler)
+
+    const muzzleOrigin = {
+      x: origin.x + _scratchOffset.x,
+      y: origin.y + _scratchOffset.y,
+      z: origin.z + _scratchOffset.z,
+    }
+
+    // Aim Mode provides better recoil stability (35% lower recoil kick)
+    const recoilMult = state.isAdsZoom ? 0.65 : 1.0
+    recoilPitchRef.current = Math.min(0.12, recoilPitchRef.current + weaponRecoilKick(me.weapon) * recoilMult)
     state.triggerLocalShotVisual()
+    state.addLocalTracer(me.team, me.weapon, muzzleOrigin, endpoints)
+    state.markTutorialStep('shot')
     soundEngine.playWeaponFire(me.weapon, 1)
-    multiplayerClient.shoot(origin, { x: dir.x, y: dir.y, z: dir.z })
-  }, [getThreeState])
+    multiplayerClient.shoot(origin, dir)
+  }, [computeAimDirection, openMathQuiz])
 
   useEffect(() => {
     const domElement = gl.domElement
 
-    const onPointerLockChange = () => {
-      const locked = document.pointerLockElement === domElement
-      const state = useGameStore.getState()
-      state.setPointerLocked(locked)
+    inputManager.attach(domElement, {
+      isArenaActive: () => useGameStore.getState().screen === 'arena',
+      isCombatPlayable: () => {
+        const s = useGameStore.getState()
+        return s.screen === 'arena' && s.room?.phase === 'playing' && !s.mathModalOpen && !s.pauseOpen
+      },
+      isMathModalOpen: () => useGameStore.getState().mathModalOpen,
+      isPauseOpen: () => useGameStore.getState().pauseOpen,
+      canDismissMath: () => {
+        const s = useGameStore.getState()
+        const me = selectMyPlayer(s)
+        const exhausted = Boolean(s.errorMessage && s.errorMessage.includes('ครบทั้งคลัง'))
+        return Boolean(!me || me.weapon || exhausted)
+      },
+      hasWeapon: () => Boolean(selectMyPlayer(useGameStore.getState())?.weapon),
+      onPointerLockChange: (locked, wasExpectedUnlock) => {
+        const s = useGameStore.getState()
+        s.setPointerLocked(locked)
 
-      if (!locked && state.screen === 'arena' && state.room?.phase === 'playing' && !state.mathModalOpen) {
-        state.setPauseOpen(true)
-      }
-      if (locked) {
-        state.setPauseOpen(false)
-      }
-    }
-
-    const onMouseMove = (e: MouseEvent) => {
-      if (document.pointerLockElement !== domElement) return
-      const state = useGameStore.getState()
-      if (state.mathModalOpen || state.pauseOpen) return
-      const sens = state.mouseSensitivity * (state.isAdsZoom ? 0.55 : 1)
-      yawRef.current -= e.movementX * sens
-      pitchRef.current = Math.max(
-        -Math.PI / 2 + 0.08,
-        Math.min(Math.PI / 2 - 0.08, pitchRef.current - e.movementY * sens),
-      )
-    }
-
-    const onMouseDown = (e: MouseEvent) => {
-      const state = useGameStore.getState()
-      if (state.screen !== 'arena') return
-      if (state.mathModalOpen || state.pauseOpen) return
-
-      if (document.pointerLockElement !== domElement) {
-        if (e.target === domElement) {
-          void domElement.requestPointerLock?.()
-        }
-        return
-      }
-
-      if (e.button === 0) {
-        mouseDownRef.current = true
-        attemptShoot()
-      } else if (e.button === 2) {
-        state.setAdsZoom(true)
-      }
-    }
-
-    const onMouseUp = (e: MouseEvent) => {
-      if (e.button === 0) {
-        mouseDownRef.current = false
-      } else if (e.button === 2) {
-        useGameStore.getState().setAdsZoom(false)
-      }
-    }
-
-    const onContextMenu = (e: MouseEvent) => {
-      if (useGameStore.getState().screen === 'arena') {
-        e.preventDefault()
-      }
-    }
-
-    const onKeyDown = (e: KeyboardEvent) => {
-      const state = useGameStore.getState()
-      if (state.screen !== 'arena') return
-
-      if (e.code === 'Tab') {
-        e.preventDefault()
-        state.setScoreboardOpen(true)
-        return
-      }
-
-      if (e.code === 'Escape') {
-        if (state.mathModalOpen) {
-          state.setMathModalOpen(false)
+        if (locked) {
+          wasLockedRef.current = true
+          s.setPauseOpen(false)
           return
         }
-        if (state.pauseOpen) {
-          state.setPauseOpen(false)
-          return
-        }
-        if (!document.pointerLockElement && state.room?.phase === 'playing') {
-          state.setPauseOpen(true)
-        }
-        return
-      }
 
-      if (e.code === 'KeyE' && state.room?.phase === 'playing' && !state.pauseOpen) {
-        e.preventDefault()
-        if (state.mathModalOpen) {
-          state.setMathModalOpen(false)
-        } else {
-          if (document.pointerLockElement) document.exitPointerLock()
-          mouseDownRef.current = false
-          state.setAdsZoom(false)
-          if (state.activeQuestion) {
-            state.setMathModalOpen(true)
-          } else {
-            multiplayerClient.requestQuestion()
+        // Pressing Esc while locked in combat releases Pointer Lock and opens Pause Menu cleanly.
+        if (
+          wasLockedRef.current &&
+          !wasExpectedUnlock &&
+          s.screen === 'arena' &&
+          s.room?.phase === 'playing' &&
+          !s.mathModalOpen
+        ) {
+          const me = selectMyPlayer(s)
+          if (me?.weapon) {
+            s.setPauseOpen(true)
           }
         }
-        return
-      }
-
-      if (state.mathModalOpen || state.pauseOpen) return
-
-      // Valorant-style Q / C / X Tactical Skill hotkeys
-      if (state.room?.phase === 'playing') {
-        if (e.code === 'KeyQ') {
-          e.preventDefault()
-          castSkill('Q')
-          return
-        }
-        if (e.code === 'KeyC') {
-          e.preventDefault()
-          castSkill('C')
-          return
-        }
-        if (e.code === 'KeyX') {
-          e.preventDefault()
-          castSkill('X')
-          return
-        }
-      }
-
-      keysRef.current.add(e.code)
-
-      if (e.code === 'KeyR' && state.room?.phase === 'playing') {
-        const me = selectMyPlayer(state)
+        wasLockedRef.current = false
+      },
+      onPointerLockError: () => {
+        useGameStore.getState().setPointerLocked(false)
+      },
+      onShootPress: () => attemptShoot(),
+      onJumpPress: () => {
+        jumpBufferRef.current = JUMP_BUFFER_SEC
+      },
+      onReloadPress: () => {
+        const s = useGameStore.getState()
+        const me = selectMyPlayer(s)
         if (me?.weapon && me.ammo < WEAPONS[me.weapon].magSize && !me.reloadingUntil) {
           multiplayerClient.reload()
           soundEngine.playReload()
         }
-      }
-
-      if (e.code === 'Space' && groundedRef.current && state.room?.phase === 'playing') {
-        velocityYRef.current = JUMP_VELOCITY
-        groundedRef.current = false
-        soundEngine.playJump(false)
-      }
-
-      if (e.code === 'KeyF' && state.room?.phase === 'playing') {
-        attemptShoot()
-      }
-    }
-
-    const onKeyUp = (e: KeyboardEvent) => {
-      keysRef.current.delete(e.code)
-      if (e.code === 'Tab') {
-        useGameStore.getState().setScoreboardOpen(false)
-      }
-    }
-
-    const onBlur = () => {
-      keysRef.current.clear()
-      mouseDownRef.current = false
-      useGameStore.getState().setAdsZoom(false)
-      useGameStore.getState().setScoreboardOpen(false)
-    }
+      },
+      onDoubleRPress: () => openMathQuiz(),
+      onSingleRHint: () => useGameStore.getState().triggerRrHint(),
+      onOpenOrToggleMath: () => {
+        const s = useGameStore.getState()
+        const me = selectMyPlayer(s)
+        const exhausted = Boolean(s.errorMessage && s.errorMessage.includes('ครบทั้งคลัง'))
+        if (s.mathModalOpen) {
+          if (!me || me.weapon || exhausted) {
+            s.completeMathFlowToCombat()
+          }
+        } else {
+          openMathQuiz()
+        }
+      },
+      onSkillPress: (slot) => castSkill(slot),
+      onEscapePress: () => {
+        const s = useGameStore.getState()
+        const me = selectMyPlayer(s)
+        const exhausted = Boolean(s.errorMessage && s.errorMessage.includes('ครบทั้งคลัง'))
+        if (s.mathModalOpen) {
+          if (!me || me.weapon || exhausted) {
+            s.completeMathFlowToCombat()
+          }
+          return
+        }
+        // Requirement: Returning from Pause requires intentional Resume action (do not accidentally unpause)
+        if (!s.pauseOpen && s.room?.phase === 'playing') {
+          inputManager.resetAllInputs()
+          inputManager.releasePointerLockProgrammatically()
+          s.setPauseOpen(true)
+        }
+      },
+      onScoreboardChange: (open) => {
+        useGameStore.getState().setScoreboardOpen(open)
+      },
+      onAimChange: (aiming) => {
+        const s = useGameStore.getState()
+        s.setAdsZoom(aiming)
+        if (aiming && s.room?.phase === 'playing' && !s.mathModalOpen && !s.pauseOpen) {
+          s.markTutorialStep('aimed')
+        }
+      },
+      onSprintChange: (sprinting) => {
+        useGameStore.getState().setSprinting(sprinting)
+      },
+      onToggleControlsRef: () => {
+        useGameStore.getState().toggleControlsRef()
+      },
+    })
 
     const onHudSkillEvent = (ev: Event) => {
       const slot = (ev as CustomEvent<SkillSlot>).detail
@@ -259,28 +384,19 @@ export function PlayerController() {
       }
     }
 
-    document.addEventListener('pointerlockchange', onPointerLockChange)
-    window.addEventListener('mousemove', onMouseMove)
-    window.addEventListener('mousedown', onMouseDown)
-    window.addEventListener('mouseup', onMouseUp)
-    window.addEventListener('contextmenu', onContextMenu)
-    window.addEventListener('keydown', onKeyDown)
-    window.addEventListener('keyup', onKeyUp)
-    window.addEventListener('blur', onBlur)
+    const onHudOpenMathEvent = () => {
+      openMathQuiz()
+    }
+
     window.addEventListener('math-rivals-cast-skill', onHudSkillEvent)
+    window.addEventListener('math-rivals-open-math', onHudOpenMathEvent)
 
     return () => {
-      document.removeEventListener('pointerlockchange', onPointerLockChange)
-      window.removeEventListener('mousemove', onMouseMove)
-      window.removeEventListener('mousedown', onMouseDown)
-      window.removeEventListener('mouseup', onMouseUp)
-      window.removeEventListener('contextmenu', onContextMenu)
-      window.removeEventListener('keydown', onKeyDown)
-      window.removeEventListener('keyup', onKeyUp)
-      window.removeEventListener('blur', onBlur)
       window.removeEventListener('math-rivals-cast-skill', onHudSkillEvent)
+      window.removeEventListener('math-rivals-open-math', onHudOpenMathEvent)
+      inputManager.detach()
     }
-  }, [gl.domElement, attemptShoot, castSkill])
+  }, [gl.domElement, attemptShoot, castSkill, openMathQuiz])
 
   useFrame((frameState, rawDelta) => {
     const cam = frameState.camera
@@ -288,9 +404,10 @@ export function PlayerController() {
     const state = useGameStore.getState()
 
     if (state.screen !== 'arena' || !state.room) {
-      const t = frameState.clock.elapsedTime * 0.16
+      autoMathRequestedRef.current = false
+      const t = frameState.clock.elapsedTime * 0.14
       const radius = 26
-      cam.position.set(Math.sin(t) * radius, 11.5 + Math.sin(t * 1.4) * 1.4, Math.cos(t) * radius)
+      cam.position.set(Math.sin(t) * radius, 11.5 + Math.sin(t * 1.4) * 1.2, Math.cos(t) * radius)
       cam.lookAt(0, 2.2, 0)
       if (cam instanceof THREE.PerspectiveCamera && Math.abs(cam.fov - 65) > 0.2) {
         cam.fov = 65
@@ -302,78 +419,203 @@ export function PlayerController() {
     const me = selectMyPlayer(state)
     if (!me) return
 
+    // Mandatory Math Gate: auto-open Math Quiz as soon as a live match starts while unarmed!
+    if (
+      !state.practiceMode &&
+      state.room.phase === 'playing' &&
+      me.alive &&
+      !me.weapon &&
+      !state.weaponReveal
+    ) {
+      if (!state.mathModalOpen && !autoMathRequestedRef.current) {
+        autoMathRequestedRef.current = true
+        openMathQuiz()
+      }
+    } else if (me.weapon) {
+      autoMathRequestedRef.current = false
+    }
+
     // Snap on phase change, respawn, or server-authorized Dash / Phase Blink
     const pendingSnap = state.consumePendingSnap()
     if (pendingSnap) {
       posRef.current = { ...pendingSnap }
+      velXRef.current = 0
+      velZRef.current = 0
+      multiplayerClient.sendMove(posRef.current, yawRef.current, pitchRef.current)
     } else if (prevPhaseRef.current !== state.room.phase || (!prevAliveRef.current && me.alive)) {
       posRef.current = { ...me.position }
       yawRef.current = me.yaw
       pitchRef.current = 0
+      recoilPitchRef.current = 0
+      velXRef.current = 0
+      velZRef.current = 0
       velocityYRef.current = 0
       groundedRef.current = true
+      coyoteTimerRef.current = COYOTE_TIME_SEC
+      jumpBufferRef.current = 0
+      multiplayerClient.sendMove(posRef.current, yawRef.current, pitchRef.current)
     }
     prevPhaseRef.current = state.room.phase
     prevAliveRef.current = me.alive
 
-    // Smooth ADS FOV zoom
+    // Smooth recoil recovery (zero permanent camera drift!)
+    if (recoilPitchRef.current > 0.0001) {
+      recoilPitchRef.current = Math.max(0, recoilPitchRef.current - dt * 0.28)
+    } else {
+      recoilPitchRef.current = 0
+    }
+
+    const input = inputManager.getSnapshot()
+    const { dx: mouseDx, dy: mouseDy } = inputManager.consumeMouseDelta()
+
+    // Smooth controlled FOV transition for Ctrl Aim Mode
     if (cam instanceof THREE.PerspectiveCamera) {
       const targetFov =
-        state.isAdsZoom && me.weapon && me.alive && !state.mathModalOpen
-          ? WEAPONS[me.weapon].adsFov
+        input.aim && me.alive && !state.mathModalOpen && !state.pauseOpen
+          ? aimFovForWeapon(me.weapon)
           : DEFAULT_FOV
-      if (Math.abs(cam.fov - targetFov) > 0.1) {
+      if (Math.abs(cam.fov - targetFov) > 0.08) {
         cam.fov = THREE.MathUtils.lerp(cam.fov, targetFov, Math.min(1, dt * 14))
         cam.updateProjectionMatrix()
       }
     }
 
-    if (!state.mathModalOpen && !state.pauseOpen) {
-      const keys = keysRef.current
-      if (keys.has('ArrowLeft')) yawRef.current += 2.2 * dt
-      if (keys.has('ArrowRight')) yawRef.current -= 2.2 * dt
-      if (keys.has('ArrowUp')) pitchRef.current = Math.min(Math.PI / 2 - 0.08, pitchRef.current + 1.6 * dt)
-      if (keys.has('ArrowDown')) pitchRef.current = Math.max(-Math.PI / 2 + 0.08, pitchRef.current - 1.6 * dt)
+    if (state.mathModalOpen || state.pauseOpen) {
+      velXRef.current = 0
+      velZRef.current = 0
+      state.setSprinting(false)
+    } else {
+      // Camera rotates STRICTLY from intentional mouse movement (or optional arrow keys)
+      if (mouseDx !== 0 || mouseDy !== 0) {
+        const sens = state.mouseSensitivity * (input.aim ? state.aimSensitivityMultiplier : 1)
+        const dYaw = mouseDx * sens
+        const dPitch = (state.invertY ? mouseDy : -mouseDy) * sens
+        yawRef.current -= dYaw
+        pitchRef.current = Math.max(
+          -Math.PI / 2 + 0.08,
+          Math.min(Math.PI / 2 - 0.08, pitchRef.current + dPitch),
+        )
+        cumulativeLookRef.current += Math.abs(dYaw) + Math.abs(dPitch)
+        if (cumulativeLookRef.current >= 0.14) {
+          state.markTutorialStep('looked')
+        }
+      }
+      if (input.arrowLeft) yawRef.current += 2.1 * dt
+      if (input.arrowRight) yawRef.current -= 2.1 * dt
+      if (input.arrowUp) pitchRef.current = Math.min(Math.PI / 2 - 0.08, pitchRef.current + 1.5 * dt)
+      if (input.arrowDown) pitchRef.current = Math.max(-Math.PI / 2 + 0.08, pitchRef.current - 1.5 * dt)
     }
 
+    // Apply rotation strictly inside this single stable frame loop
     cam.rotation.order = 'YXZ'
     cam.rotation.y = yawRef.current
-    cam.rotation.x = pitchRef.current
+    cam.rotation.x = Math.max(
+      -Math.PI / 2 + 0.06,
+      Math.min(Math.PI / 2 - 0.06, pitchRef.current + recoilPitchRef.current),
+    )
     cam.rotation.z = 0
 
     if (!me.alive) {
+      state.setSprinting(false)
       cam.position.set(posRef.current.x, posRef.current.y + 3.4, posRef.current.z + 2.5)
       cam.lookAt(posRef.current.x, posRef.current.y + 1, posRef.current.z)
       return
     }
 
     if (state.room.phase === 'playing' && !state.mathModalOpen && !state.pauseOpen) {
-      const keys = keysRef.current
       let forwardInput = 0
       let strafeInput = 0
-      if (keys.has('KeyW')) forwardInput += 1
-      if (keys.has('KeyS')) forwardInput -= 1
-      if (keys.has('KeyD')) strafeInput += 1
-      if (keys.has('KeyA')) strafeInput -= 1
+      if (input.forward) forwardInput += 1
+      if (input.backward) forwardInput -= 1
+      if (input.right) strafeInput += 1
+      if (input.left) strafeInput -= 1
 
+      const hasMoveInput = forwardInput !== 0 || strafeInput !== 0
       const serverNow = Date.now() + state.clockOffsetMs
-      const overdriveMult = me.overdriveUntil && serverNow < me.overdriveUntil ? 1.32 : 1.0
-      const sprinting = (keys.has('ShiftLeft') || keys.has('ShiftRight')) && forwardInput > 0 && !state.isAdsZoom
-      const speed = (sprinting ? SPRINT_SPEED : state.isAdsZoom ? WALK_SPEED * 0.6 : WALK_SPEED) * overdriveMult
+      const overdriveMult = me.overdriveUntil && serverNow < me.overdriveUntil ? 1.3 : 1.0
 
-      let moveX = 0
-      let moveZ = 0
-      if (forwardInput !== 0 || strafeInput !== 0) {
+      // Shift ONLY sprints while actively moving (never causes automatic movement or aim!)
+      const activeSprint = input.sprint && hasMoveInput && !input.aim
+      state.setSprinting(activeSprint)
+      if (activeSprint) {
+        state.markTutorialStep('sprinted')
+      }
+
+      const baseSpeed = activeSprint
+        ? SPRINT_SPEED
+        : input.aim
+          ? WALK_SPEED * 0.65
+          : WALK_SPEED
+      const maxSpeed = baseSpeed * overdriveMult
+
+      // Normalized input vector prevents accidental diagonal speed advantage
+      let wishX = 0
+      let wishZ = 0
+      if (hasMoveInput) {
         const len = Math.hypot(forwardInput, strafeInput)
         const nf = forwardInput / len
         const ns = strafeInput / len
         const sinY = Math.sin(yawRef.current)
         const cosY = Math.cos(yawRef.current)
-        moveX = (-sinY * nf + cosY * ns) * speed * dt
-        moveZ = (-cosY * nf - sinY * ns) * speed * dt
+        wishX = (-sinY * nf + cosY * ns) * maxSpeed
+        wishZ = (-cosY * nf - sinY * ns) * maxSpeed
       }
 
-      // Collect active 3D Aegis Barrier Walls for physical collision
+      if (groundedRef.current) {
+        const rate = hasMoveInput ? GROUND_ACCEL : GROUND_DECEL
+        const maxDelta = rate * dt
+        const dvx = wishX - velXRef.current
+        const dvz = wishZ - velZRef.current
+        const dlen = Math.hypot(dvx, dvz)
+        if (dlen <= maxDelta) {
+          velXRef.current = wishX
+          velZRef.current = wishZ
+        } else {
+          velXRef.current += (dvx / dlen) * maxDelta
+          velZRef.current += (dvz / dlen) * maxDelta
+        }
+      } else if (hasMoveInput) {
+        const maxDelta = AIR_ACCEL * dt
+        const dvx = wishX - velXRef.current
+        const dvz = wishZ - velZRef.current
+        const dlen = Math.hypot(dvx, dvz)
+        if (dlen <= maxDelta) {
+          velXRef.current = wishX
+          velZRef.current = wishZ
+        } else {
+          velXRef.current += (dvx / dlen) * maxDelta
+          velZRef.current += (dvz / dlen) * maxDelta
+        }
+      } else {
+        const damp = Math.max(0, 1 - AIR_DRAG * dt)
+        velXRef.current *= damp
+        velZRef.current *= damp
+      }
+
+      if (hasMoveInput) {
+        cumulativeMoveRef.current += Math.hypot(velXRef.current, velZRef.current) * dt
+        if (cumulativeMoveRef.current >= 1.5) {
+          state.markTutorialStep('moved')
+        }
+      }
+
+      if (groundedRef.current) {
+        coyoteTimerRef.current = COYOTE_TIME_SEC
+      } else {
+        coyoteTimerRef.current = Math.max(0, coyoteTimerRef.current - dt)
+      }
+      if (jumpBufferRef.current > 0) {
+        jumpBufferRef.current = Math.max(0, jumpBufferRef.current - dt)
+      }
+
+      if (jumpBufferRef.current > 0 && coyoteTimerRef.current > 0) {
+        velocityYRef.current = JUMP_VELOCITY
+        groundedRef.current = false
+        coyoteTimerRef.current = 0
+        jumpBufferRef.current = 0
+        soundEngine.playJump(false)
+      }
+
       const dynamicBarriers: ArenaBox[] = []
       for (const eff of state.room.worldEffects) {
         if (eff.kind === 'barrier' && eff.box && eff.expiresAt > serverNow) {
@@ -393,9 +635,9 @@ export function PlayerController() {
 
       velocityYRef.current -= GRAVITY * dt
       const desired = {
-        x: posRef.current.x + moveX,
+        x: posRef.current.x + velXRef.current * dt,
         y: posRef.current.y + velocityYRef.current * dt,
-        z: posRef.current.z + moveZ,
+        z: posRef.current.z + velZRef.current * dt,
       }
 
       const resolved = resolvePlayerMovement(
@@ -412,7 +654,7 @@ export function PlayerController() {
         soundEngine.playJump(true)
       }
 
-      if (mouseDownRef.current && me.weapon && WEAPONS[me.weapon].automatic) {
+      if (input.shooting && me.weapon) {
         attemptShoot()
       }
     }
@@ -424,7 +666,28 @@ export function PlayerController() {
     )
 
     state.setLocalTransform(posRef.current, yawRef.current, pitchRef.current)
-    multiplayerClient.sendMove(posRef.current, yawRef.current, pitchRef.current)
+    const nowMs = performance.now()
+    const prevSent = lastSentPosRef.current
+    const movedDelta =
+      Math.abs(posRef.current.x - prevSent.x) +
+      Math.abs(posRef.current.y - prevSent.y) +
+      Math.abs(posRef.current.z - prevSent.z) +
+      Math.abs(yawRef.current - prevSent.yaw) +
+      Math.abs(pitchRef.current - prevSent.pitch)
+    if (
+      (movedDelta > 0.001 && nowMs - lastMoveSentAtRef.current >= 45) ||
+      nowMs - lastMoveSentAtRef.current >= 300
+    ) {
+      lastMoveSentAtRef.current = nowMs
+      lastSentPosRef.current = {
+        x: posRef.current.x,
+        y: posRef.current.y,
+        z: posRef.current.z,
+        yaw: yawRef.current,
+        pitch: pitchRef.current,
+      }
+      multiplayerClient.sendMove(posRef.current, yawRef.current, pitchRef.current)
+    }
   })
 
   return null

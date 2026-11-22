@@ -16,6 +16,40 @@ import type {
 
 export type ScreenMode = 'menu' | 'room' | 'lobby' | 'arena' | 'result'
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting'
+export type TransportMode = 'ws' | 'p2p' | 'supabase' | 'practice'
+
+/**
+ * Explicit Math Question & Weapon Reward state machine.
+ * Guarantees questions never disappear abruptly and duplicate submissions are impossible.
+ */
+export type MathFlowPhase =
+  | 'COMBAT_READY'
+  | 'QUESTION_ACTIVE'
+  | 'ANSWER_SUBMITTED'
+  | 'ANSWER_FEEDBACK'
+  | 'WEAPON_REVEAL'
+
+export interface PracticeTarget {
+  id: string
+  label: string
+  basePosition: Vec3
+  position: Vec3
+  strafeRange: number
+  strafeSpeed: number
+  hp: number
+  maxHp: number
+  alive: boolean
+  respawnAt: number | null
+}
+
+export interface TutorialProgress {
+  moved: boolean
+  looked: boolean
+  aimed: boolean
+  sprinted: boolean
+  shot: boolean
+  solvedMath: boolean
+}
 
 export interface RemoteTransform {
   position: Vec3
@@ -45,7 +79,23 @@ export interface PersistedSession {
   playerName: string
 }
 
+export interface PersistedSettings {
+  mouseSensitivity: number
+  aimSensitivityMultiplier: number
+  invertY: boolean
+  muted: boolean
+}
+
+export const DEFAULT_SETTINGS: PersistedSettings = {
+  mouseSensitivity: 0.002,
+  aimSensitivityMultiplier: 0.55,
+  invertY: false,
+  muted: false,
+}
+
 const SESSION_KEY = 'math_rivals_3d_session'
+const SETTINGS_KEY = 'math_rivals_3d_settings'
+const TUTORIAL_KEY = 'math_rivals_3d_tutorial_done'
 
 export function saveSession(session: PersistedSession | null): void {
   try {
@@ -78,6 +128,53 @@ export function loadSession(): PersistedSession | null {
   }
 }
 
+function loadSettings(): PersistedSettings {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY)
+    if (!raw) return { ...DEFAULT_SETTINGS }
+    const p = JSON.parse(raw) as Partial<PersistedSettings>
+    return {
+      mouseSensitivity:
+        typeof p.mouseSensitivity === 'number' && Number.isFinite(p.mouseSensitivity)
+          ? Math.max(0.0005, Math.min(0.006, p.mouseSensitivity))
+          : DEFAULT_SETTINGS.mouseSensitivity,
+      aimSensitivityMultiplier:
+        typeof p.aimSensitivityMultiplier === 'number' && Number.isFinite(p.aimSensitivityMultiplier)
+          ? Math.max(0.2, Math.min(1.0, p.aimSensitivityMultiplier))
+          : DEFAULT_SETTINGS.aimSensitivityMultiplier,
+      invertY: Boolean(p.invertY),
+      muted: Boolean(p.muted),
+    }
+  } catch {
+    return { ...DEFAULT_SETTINGS }
+  }
+}
+
+function persistSettings(settings: PersistedSettings): void {
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings))
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+function loadTutorialDone(): boolean {
+  try {
+    return localStorage.getItem(TUTORIAL_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function persistTutorialDone(done: boolean): void {
+  try {
+    if (done) localStorage.setItem(TUTORIAL_KEY, '1')
+    else localStorage.removeItem(TUTORIAL_KEY)
+  } catch {
+    // Ignore storage errors
+  }
+}
+
 export interface HitMarkerState {
   id: number
   headshot: boolean
@@ -96,17 +193,32 @@ export interface WeaponRevealState {
 
 export interface ActiveTracer {
   id: string
+  shooterId?: string
   shooterTeam: 'blue' | 'red'
   weapon: WeaponId
   origin: Vec3
   endpoints: Vec3[]
   createdAt: number
+  isLocalPredicted?: boolean
+}
+
+const initialSettings = loadSettings()
+
+const EMPTY_TUTORIAL: TutorialProgress = {
+  moved: false,
+  looked: false,
+  aimed: false,
+  sprinted: false,
+  shot: false,
+  solvedMath: false,
 }
 
 export interface GameState {
   screen: ScreenMode
   connectionStatus: ConnectionStatus
-  transportMode: 'ws' | 'p2p' | 'supabase'
+  transportMode: TransportMode
+  practiceMode: boolean
+  practiceTargets: PracticeTarget[]
   playerName: string
   playerId: string | null
   sessionToken: string | null
@@ -120,8 +232,14 @@ export interface GameState {
   pendingSnapPos: Vec3 | null
   lastShotVisualAt: number
   isAdsZoom: boolean
+  isSprinting: boolean
+  rrHintUntil: number
 
+  // Explicit 5-State Math Flow Machine
+  mathFlowPhase: MathFlowPhase
   activeQuestion: PublicMathQuestion | null
+  submittedQuestion: PublicMathQuestion | null
+  selectedChoiceIndex: number | null
   lastAnswerResult: AnswerResultPayload | null
   mathModalOpen: boolean
   weaponReveal: WeaponRevealState | null
@@ -132,18 +250,29 @@ export interface GameState {
   recentKills: KillFeedItem[]
   matchSummary: MatchSummary | null
 
+  // Controls, UI & Accessibility
   pointerLocked: boolean
   pauseOpen: boolean
   scoreboardOpen: boolean
+  controlsGuideOpen: boolean
+  settingsModalOpen: boolean
+  showControlsRef: boolean
+  tutorialOpen: boolean
+  tutorialCompleted: boolean
+  tutorialProgress: TutorialProgress
   muted: boolean
   mouseSensitivity: number
+  aimSensitivityMultiplier: number
+  invertY: boolean
   errorMessage: string | null
   statusToast: string | null
 
   setScreen: (screen: ScreenMode) => void
   setPlayerName: (name: string) => void
   setConnectionStatus: (status: ConnectionStatus) => void
-  setTransportMode: (mode: 'ws' | 'p2p' | 'supabase') => void
+  setTransportMode: (mode: TransportMode) => void
+  setPracticeMode: (enabled: boolean, targets?: PracticeTarget[]) => void
+  setPracticeTargets: (targets: PracticeTarget[]) => void
   setClockOffset: (serverNow: number) => void
   setError: (msg: string | null) => void
   setStatusToast: (msg: string | null) => void
@@ -151,12 +280,35 @@ export interface GameState {
   setMathModalOpen: (open: boolean) => void
   setPauseOpen: (open: boolean) => void
   setScoreboardOpen: (open: boolean) => void
+  setControlsGuideOpen: (open: boolean) => void
+  setSettingsModalOpen: (open: boolean) => void
+  toggleControlsRef: () => void
+  setTutorialOpen: (open: boolean) => void
+  markTutorialStep: (step: keyof TutorialProgress) => void
+  resetTutorial: () => void
   setMuted: (muted: boolean) => void
   setMouseSensitivity: (sens: number) => void
+  setAimSensitivityMultiplier: (mult: number) => void
+  setInvertY: (invert: boolean) => void
+  resetSettingsToDefault: () => void
   setAdsZoom: (zoom: boolean) => void
+  setSprinting: (sprinting: boolean) => void
+  triggerRrHint: () => void
   triggerLocalShotVisual: () => void
+  addLocalTracer: (
+    shooterTeam: 'blue' | 'red',
+    weapon: WeaponId,
+    origin: Vec3,
+    endpoints: Vec3[],
+  ) => void
   setLocalTransform: (pos: Vec3, yaw: number, pitch: number) => void
   consumePendingSnap: () => Vec3 | null
+
+  // Explicit Math State Machine transitions
+  beginMathSubmission: (question: PublicMathQuestion, choiceIndex: number) => void
+  advanceMathToWeaponReveal: () => void
+  completeMathFlowToCombat: () => void
+  recoverMathSubmissionError: (message: string) => void
 
   onRoomJoined: (playerId: string, sessionToken: string, room: RoomSnapshot) => void
   onRoomState: (room: RoomSnapshot) => void
@@ -212,6 +364,8 @@ export const useGameStore = create<GameState>((set, get) => ({
   screen: 'menu',
   connectionStatus: 'disconnected',
   transportMode: 'ws',
+  practiceMode: false,
+  practiceTargets: [],
   playerName: loadSession()?.playerName ?? '',
   playerId: null,
   sessionToken: null,
@@ -225,8 +379,13 @@ export const useGameStore = create<GameState>((set, get) => ({
   pendingSnapPos: null,
   lastShotVisualAt: 0,
   isAdsZoom: false,
+  isSprinting: false,
+  rrHintUntil: 0,
 
+  mathFlowPhase: 'COMBAT_READY',
   activeQuestion: null,
+  submittedQuestion: null,
+  selectedChoiceIndex: null,
   lastAnswerResult: null,
   mathModalOpen: false,
   weaponReveal: null,
@@ -240,8 +399,16 @@ export const useGameStore = create<GameState>((set, get) => ({
   pointerLocked: false,
   pauseOpen: false,
   scoreboardOpen: false,
-  muted: false,
-  mouseSensitivity: 0.0022,
+  controlsGuideOpen: false,
+  settingsModalOpen: false,
+  showControlsRef: false,
+  tutorialOpen: false,
+  tutorialCompleted: loadTutorialDone(),
+  tutorialProgress: { ...EMPTY_TUTORIAL },
+  muted: initialSettings.muted,
+  mouseSensitivity: initialSettings.mouseSensitivity,
+  aimSensitivityMultiplier: initialSettings.aimSensitivityMultiplier,
+  invertY: initialSettings.invertY,
   errorMessage: null,
   statusToast: null,
 
@@ -249,6 +416,14 @@ export const useGameStore = create<GameState>((set, get) => ({
   setPlayerName: (playerName) => set({ playerName }),
   setConnectionStatus: (connectionStatus) => set({ connectionStatus }),
   setTransportMode: (transportMode) => set({ transportMode }),
+  setPracticeMode: (practiceMode, targets) =>
+    set({
+      practiceMode,
+      practiceTargets: targets ?? (practiceMode ? get().practiceTargets : []),
+      tutorialOpen: practiceMode ? true : get().tutorialOpen,
+      tutorialProgress: practiceMode ? { ...EMPTY_TUTORIAL } : get().tutorialProgress,
+    }),
+  setPracticeTargets: (practiceTargets) => set({ practiceTargets }),
   setClockOffset: (serverNow) => {
     const sample = serverNow - Date.now()
     const prev = get().clockOffsetMs
@@ -257,13 +432,117 @@ export const useGameStore = create<GameState>((set, get) => ({
   setError: (errorMessage) => set({ errorMessage }),
   setStatusToast: (statusToast) => set({ statusToast }),
   setPointerLocked: (pointerLocked) => set({ pointerLocked }),
-  setMathModalOpen: (mathModalOpen) => set({ mathModalOpen }),
+  setMathModalOpen: (mathModalOpen) =>
+    set((state) => ({
+      mathModalOpen,
+      mathFlowPhase: mathModalOpen
+        ? state.mathFlowPhase === 'COMBAT_READY' && state.activeQuestion
+          ? 'QUESTION_ACTIVE'
+          : state.mathFlowPhase
+        : 'COMBAT_READY',
+    })),
   setPauseOpen: (pauseOpen) => set({ pauseOpen }),
   setScoreboardOpen: (scoreboardOpen) => set({ scoreboardOpen }),
-  setMuted: (muted) => set({ muted }),
-  setMouseSensitivity: (mouseSensitivity) => set({ mouseSensitivity }),
-  setAdsZoom: (isAdsZoom) => set({ isAdsZoom }),
+  setControlsGuideOpen: (controlsGuideOpen) => set({ controlsGuideOpen }),
+  setSettingsModalOpen: (settingsModalOpen) => set({ settingsModalOpen }),
+  toggleControlsRef: () => set((s) => ({ showControlsRef: !s.showControlsRef })),
+  setTutorialOpen: (tutorialOpen) => set({ tutorialOpen }),
+  markTutorialStep: (step) => {
+    const state = get()
+    if (!state.tutorialOpen || state.tutorialProgress[step]) return
+    const next = { ...state.tutorialProgress, [step]: true }
+    const allDone =
+      next.moved && next.looked && next.aimed && next.sprinted && next.shot && next.solvedMath
+    if (allDone) {
+      persistTutorialDone(true)
+    }
+    set({
+      tutorialProgress: next,
+      tutorialCompleted: state.tutorialCompleted || allDone,
+    })
+  },
+  resetTutorial: () => {
+    persistTutorialDone(false)
+    set({ tutorialCompleted: false, tutorialProgress: { ...EMPTY_TUTORIAL }, tutorialOpen: true })
+  },
+  setMuted: (muted) => {
+    const s = get()
+    persistSettings({
+      mouseSensitivity: s.mouseSensitivity,
+      aimSensitivityMultiplier: s.aimSensitivityMultiplier,
+      invertY: s.invertY,
+      muted,
+    })
+    set({ muted })
+  },
+  setMouseSensitivity: (mouseSensitivity) => {
+    const clamped = Math.max(0.0005, Math.min(0.006, mouseSensitivity))
+    const s = get()
+    persistSettings({
+      mouseSensitivity: clamped,
+      aimSensitivityMultiplier: s.aimSensitivityMultiplier,
+      invertY: s.invertY,
+      muted: s.muted,
+    })
+    set({ mouseSensitivity: clamped })
+  },
+  setAimSensitivityMultiplier: (aimSensitivityMultiplier) => {
+    const clamped = Math.max(0.2, Math.min(1.0, aimSensitivityMultiplier))
+    const s = get()
+    persistSettings({
+      mouseSensitivity: s.mouseSensitivity,
+      aimSensitivityMultiplier: clamped,
+      invertY: s.invertY,
+      muted: s.muted,
+    })
+    set({ aimSensitivityMultiplier: clamped })
+  },
+  setInvertY: (invertY) => {
+    const s = get()
+    persistSettings({
+      mouseSensitivity: s.mouseSensitivity,
+      aimSensitivityMultiplier: s.aimSensitivityMultiplier,
+      invertY,
+      muted: s.muted,
+    })
+    set({ invertY })
+  },
+  resetSettingsToDefault: () => {
+    persistSettings({ ...DEFAULT_SETTINGS })
+    set({
+      mouseSensitivity: DEFAULT_SETTINGS.mouseSensitivity,
+      aimSensitivityMultiplier: DEFAULT_SETTINGS.aimSensitivityMultiplier,
+      invertY: DEFAULT_SETTINGS.invertY,
+      muted: DEFAULT_SETTINGS.muted,
+    })
+  },
+  setAdsZoom: (isAdsZoom) => {
+    if (get().isAdsZoom === isAdsZoom) return
+    set({ isAdsZoom })
+  },
+  setSprinting: (isSprinting) => {
+    if (get().isSprinting === isSprinting) return
+    set({ isSprinting })
+  },
+  triggerRrHint: () => set({ rrHintUntil: Date.now() + 1400 }),
   triggerLocalShotVisual: () => set({ lastShotVisualAt: performance.now() }),
+  addLocalTracer: (shooterTeam, weapon, origin, endpoints) => {
+    const now = performance.now()
+    const myId = get().playerId ?? undefined
+    const nextTracer: ActiveTracer = {
+      id: `local-${now}-${Math.random().toString(36).slice(2, 6)}`,
+      shooterId: myId,
+      shooterTeam,
+      weapon,
+      origin,
+      endpoints,
+      createdAt: now,
+      isLocalPredicted: true,
+    }
+    const kept = get().tracers.filter((t) => now - t.createdAt < 260)
+    kept.push(nextTracer)
+    set({ tracers: kept })
+  },
   setLocalTransform: (localPredictedPos, localYaw, localPitch) => {
     const state = get()
     state.localPredictedPos = localPredictedPos
@@ -276,6 +555,51 @@ export const useGameStore = create<GameState>((set, get) => ({
       get().pendingSnapPos = null
     }
     return pos
+  },
+
+  beginMathSubmission: (question, choiceIndex) => {
+    const state = get()
+    // Strict duplicate-submission guard
+    if (state.mathFlowPhase !== 'QUESTION_ACTIVE') return
+    set({
+      mathFlowPhase: 'ANSWER_SUBMITTED',
+      submittedQuestion: question,
+      selectedChoiceIndex: choiceIndex,
+      errorMessage: null,
+    })
+  },
+
+  advanceMathToWeaponReveal: () => {
+    const state = get()
+    if (state.mathFlowPhase !== 'ANSWER_FEEDBACK') return
+    if (!state.lastAnswerResult?.correct || !state.lastAnswerResult.awardedWeapon) return
+    set({ mathFlowPhase: 'WEAPON_REVEAL' })
+  },
+
+  completeMathFlowToCombat: () => {
+    const curReveal = get().weaponReveal
+    set({
+      mathModalOpen: false,
+      mathFlowPhase: 'COMBAT_READY',
+      lastAnswerResult: null,
+      submittedQuestion: null,
+      selectedChoiceIndex: null,
+      weaponReveal: curReveal ? { ...curReveal, timestamp: Date.now() } : null,
+    })
+  },
+
+  recoverMathSubmissionError: (message) => {
+    const state = get()
+    if (state.mathFlowPhase === 'ANSWER_SUBMITTED') {
+      // Preserve the active question cleanly on transient network error so it never vanishes
+      set({
+        mathFlowPhase: state.activeQuestion ? 'QUESTION_ACTIVE' : 'COMBAT_READY',
+        selectedChoiceIndex: null,
+        errorMessage: message,
+      })
+    } else {
+      set({ errorMessage: message })
+    }
   },
 
   onRoomJoined: (playerId, sessionToken, room) => {
@@ -305,12 +629,14 @@ export const useGameStore = create<GameState>((set, get) => ({
       })
     }
 
-    saveSession({
-      roomCode: room.roomCode,
-      playerId,
-      sessionToken,
-      playerName: me?.name ?? get().playerName,
-    })
+    if (!get().practiceMode) {
+      saveSession({
+        roomCode: room.roomCode,
+        playerId,
+        sessionToken,
+        playerName: me?.name ?? get().playerName,
+      })
+    }
 
     set({
       playerId,
@@ -373,6 +699,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       nextLocalYaw = nextMe.yaw
     }
 
+    const stillPlaying = room.phase === 'playing'
     set({
       room,
       screen: nextScreen,
@@ -381,9 +708,14 @@ export const useGameStore = create<GameState>((set, get) => ({
       recentKills: room.killFeed,
       matchSummary: room.summary ?? get().matchSummary,
       clockOffsetMs: room.serverNow - Date.now(),
-      mathModalOpen: room.phase === 'playing' ? get().mathModalOpen : false,
-      activeQuestion: room.phase === 'playing' ? get().activeQuestion : null,
-      pauseOpen: room.phase === 'playing' ? get().pauseOpen : false,
+      // NEVER wipe active math question / feedback state while the match is still playing!
+      mathModalOpen: stillPlaying ? get().mathModalOpen : false,
+      mathFlowPhase: stillPlaying ? get().mathFlowPhase : 'COMBAT_READY',
+      activeQuestion: stillPlaying ? get().activeQuestion : null,
+      submittedQuestion: stillPlaying ? get().submittedQuestion : null,
+      selectedChoiceIndex: stillPlaying ? get().selectedChoiceIndex : null,
+      lastAnswerResult: stillPlaying ? get().lastAnswerResult : null,
+      pauseOpen: stillPlaying ? get().pauseOpen : false,
     })
   },
 
@@ -471,15 +803,27 @@ export const useGameStore = create<GameState>((set, get) => ({
   onQuestionAssigned: (question) => {
     set({
       activeQuestion: question,
+      submittedQuestion: null,
+      selectedChoiceIndex: null,
       lastAnswerResult: null,
       mathModalOpen: true,
+      mathFlowPhase: 'QUESTION_ACTIVE',
+      errorMessage: null,
     })
   },
 
   onAnswerResult: (result) => {
+    const state = get()
+    const preservedQuestion = state.submittedQuestion ?? state.activeQuestion
+    if (result.correct) {
+      state.markTutorialStep('solvedMath')
+    }
     set({
+      submittedQuestion: preservedQuestion,
       lastAnswerResult: result,
       activeQuestion: null,
+      mathModalOpen: true,
+      mathFlowPhase: 'ANSWER_FEEDBACK',
       weaponReveal:
         result.correct && result.awardedWeapon
           ? {
@@ -488,28 +832,35 @@ export const useGameStore = create<GameState>((set, get) => ({
               pointsAwarded: result.pointsAwarded,
               timestamp: Date.now(),
             }
-          : get().weaponReveal,
+          : state.weaponReveal,
     })
   },
 
   onShotFired: (shot) => {
+    const state = get()
     const now = performance.now()
+    if (
+      shot.shooterId === state.playerId &&
+      state.tracers.some((t) => t.isLocalPredicted && now - t.createdAt < 180)
+    ) {
+      return
+    }
     const nextTracer: ActiveTracer = {
       id: shot.id,
+      shooterId: shot.shooterId,
       shooterTeam: shot.shooterTeam,
       weapon: shot.weapon,
       origin: shot.origin,
       endpoints: shot.endpoints,
       createdAt: now,
     }
-    const kept = get().tracers.filter((t) => now - t.createdAt < 260)
+    const kept = state.tracers.filter((t) => now - t.createdAt < 260)
     kept.push(nextTracer)
     set({ tracers: kept })
   },
 
   onSkillCast: (cast) => {
     const state = get()
-    // Snap local FPS controller cleanly when server authorizes Tailwind Dash or Phase Blink
     const snap =
       cast.playerId === state.playerId && cast.newPosition
         ? { ...cast.newPosition }
@@ -557,16 +908,26 @@ export const useGameStore = create<GameState>((set, get) => ({
       matchSummary: summary,
       screen: 'result',
       mathModalOpen: false,
+      mathFlowPhase: 'COMBAT_READY',
       activeQuestion: null,
+      submittedQuestion: null,
+      selectedChoiceIndex: null,
+      lastAnswerResult: null,
       pauseOpen: false,
       scoreboardOpen: false,
       pointerLocked: false,
       isAdsZoom: false,
+      isSprinting: false,
     })
   },
 
   clearWeaponReveal: () => set({ weaponReveal: null }),
-  clearLastAnswer: () => set({ lastAnswerResult: null }),
+  clearLastAnswer: () =>
+    set({
+      lastAnswerResult: null,
+      submittedQuestion: null,
+      selectedChoiceIndex: null,
+    }),
 
   resetToMenu: () => {
     saveSession(null)
@@ -575,14 +936,19 @@ export const useGameStore = create<GameState>((set, get) => ({
     }
     set({
       screen: 'menu',
+      practiceMode: false,
+      practiceTargets: [],
       playerId: null,
       sessionToken: null,
       room: null,
       liveTransforms: new Map(),
       pendingSnapPos: null,
       activeQuestion: null,
+      submittedQuestion: null,
+      selectedChoiceIndex: null,
       lastAnswerResult: null,
       mathModalOpen: false,
+      mathFlowPhase: 'COMBAT_READY',
       weaponReveal: null,
       lastSkillBanner: null,
       hitMarker: null,
@@ -593,7 +959,9 @@ export const useGameStore = create<GameState>((set, get) => ({
       pointerLocked: false,
       pauseOpen: false,
       scoreboardOpen: false,
+      tutorialOpen: false,
       isAdsZoom: false,
+      isSprinting: false,
       errorMessage: null,
     })
   },
@@ -603,3 +971,27 @@ export function selectMyPlayer(state: GameState): PlayerPublicState | null {
   if (!state.room || !state.playerId) return null
   return state.room.players.find((p) => p.id === state.playerId) ?? null
 }
+
+if (typeof window !== 'undefined') {
+  ;(
+    window as unknown as {
+      __MATH_RIVALS_TELEMETRY__?: () => {
+        yaw: number
+        pitch: number
+        x: number
+        y: number
+        z: number
+      }
+    }
+  ).__MATH_RIVALS_TELEMETRY__ = () => {
+    const s = useGameStore.getState()
+    return {
+      yaw: s.localYaw,
+      pitch: s.localPitch,
+      x: s.localPredictedPos.x,
+      y: s.localPredictedPos.y,
+      z: s.localPredictedPos.z,
+    }
+  }
+}
+

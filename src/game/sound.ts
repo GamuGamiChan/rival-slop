@@ -206,6 +206,11 @@ class SoundEngine {
     this.playTone(170, 130, 0.18, 'sawtooth', 0.12, 0.12)
   }
 
+  playRollTick(step = 0): void {
+    const freq = 480 + (step % 8) * 65
+    this.playTone(freq, freq * 1.15, 0.045, 'triangle', 0.08)
+  }
+
   playWeaponReveal(): void {
     this.playTone(330, 660, 0.18, 'sine', 0.12, 0)
     this.playTone(660, 1320, 0.26, 'triangle', 0.14, 0.08)

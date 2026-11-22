@@ -1,4 +1,17 @@
-import { Crosshair, Play, RotateCcw, Shield, Sparkles, Trophy, Users, Volume2, VolumeX, Zap } from 'lucide-react'
+import {
+  Crosshair,
+  GraduationCap,
+  Keyboard,
+  Play,
+  RotateCcw,
+  Shield,
+  Sparkles,
+  Trophy,
+  Users,
+  Volume2,
+  VolumeX,
+  Zap,
+} from 'lucide-react'
 import { useState } from 'react'
 import { AGENT_IDS, AGENTS } from '../../shared/agents.ts'
 import { WEAPON_IDS, WEAPONS } from '../../shared/weapons.ts'
@@ -9,6 +22,7 @@ export function MainMenu() {
   const playerName = useGameStore((s) => s.playerName)
   const setPlayerName = useGameStore((s) => s.setPlayerName)
   const setScreen = useGameStore((s) => s.setScreen)
+  const setControlsGuideOpen = useGameStore((s) => s.setControlsGuideOpen)
   const muted = useGameStore((s) => s.muted)
   const setMuted = useGameStore((s) => s.setMuted)
   const errorMessage = useGameStore((s) => s.errorMessage)
@@ -22,6 +36,12 @@ export function MainMenu() {
     await multiplayerClient.createRoom(name)
   }
 
+  const handleStartPractice = () => {
+    const name = playerName.trim() || 'Trainee'
+    setPlayerName(name)
+    multiplayerClient.startPracticeMode(name)
+  }
+
   const handleReconnect = async () => {
     setReconnecting(true)
     const ok = await multiplayerClient.tryReconnectSavedSession()
@@ -32,9 +52,9 @@ export function MainMenu() {
   }
 
   return (
-    <div className="relative z-10 flex flex-col justify-between h-full w-full p-5 md:p-8 bg-gradient-to-r from-[#040812]/90 via-[#040812]/55 to-[#040812]/82 overflow-y-auto">
+    <div className="relative z-10 flex flex-col justify-between h-full w-full p-5 md:p-8 bg-gradient-to-r from-[#060d1c]/88 via-[#060d1c]/52 to-[#060d1c]/80 overflow-y-auto">
       {/* Top Bar */}
-      <header className="flex items-center justify-between">
+      <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="h-10 w-10 hud-cut-sm bg-cyan-500/20 border border-cyan-400/60 flex items-center justify-center">
             <Crosshair className="w-5 h-5 text-cyan-300" />
@@ -49,7 +69,7 @@ export function MainMenu() {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5">
           <span className="hidden sm:inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold tracking-wider uppercase bg-slate-900/80 border border-slate-700/80 text-slate-300 hud-cut-sm">
             <span className="h-2 w-2 rounded-full bg-emerald-400" />
             {transportMode === 'supabase'
@@ -58,6 +78,14 @@ export function MainMenu() {
                 ? 'WebRTC P2P Online'
                 : 'Authoritative WS'}
           </span>
+          <button
+            id="btn-menu-controls"
+            type="button"
+            onClick={() => setControlsGuideOpen(true)}
+            className="px-3 py-2 bg-slate-900/85 hover:bg-slate-800 border border-cyan-500/45 text-cyan-200 hud-cut-sm flex items-center gap-1.5 text-xs font-display tracking-wider uppercase transition cursor-pointer"
+          >
+            <Keyboard className="w-4 h-4 text-cyan-300" /> CONTROLS &amp; SETTINGS
+          </button>
           <button
             id="btn-toggle-mute"
             type="button"
@@ -82,13 +110,13 @@ export function MainMenu() {
               <span className="text-rose-500">3D</span>
             </h1>
             <p className="font-thai text-slate-300 text-sm sm:text-base max-w-xl leading-relaxed">
-              เลือก Agent ใช้สกิล <strong className="text-cyan-300">[Q] [C] [X]</strong> สไตล์ Tactical FPS
               ตอบโจทย์คณิตศาสตร์ ม.4 เทอม 2 เพื่อสุ่มปืนไซไฟ <strong className="text-amber-300">8 ชนิด</strong>{' '}
-              และชาร์จอัลติเมตลุยศึก 2–8 คนใน 90 วินาที
+              ใช้ <strong className="text-cyan-300">Ctrl เล็ง • Shift วิ่ง • Q/C/X สกิล</strong>{' '}
+              ลุยศึกจริง 2–8 คน หรือฝึกควบคุมในโหมด Practice Range ได้ทันที
             </p>
           </div>
 
-          <div className="hud-panel hud-cut border border-slate-700/70 p-5 max-w-lg space-y-4">
+          <div className="hud-panel hud-cut border border-slate-700/70 p-5 max-w-lg space-y-3.5">
             <div className="space-y-1.5">
               <label
                 htmlFor="input-player-name"
@@ -133,6 +161,17 @@ export function MainMenu() {
                 JOIN ROOM
               </button>
             </div>
+
+            {/* Beginner-Friendly Solo Practice Range + Interactive 6-Step Tutorial */}
+            <button
+              id="btn-menu-practice"
+              type="button"
+              onClick={handleStartPractice}
+              className="w-full flex items-center justify-center gap-2.5 py-3 px-4 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-400/55 text-emerald-200 font-display font-bold tracking-wider text-xs uppercase hud-cut-sm transition cursor-pointer"
+            >
+              <GraduationCap className="w-4 h-4 text-emerald-300" />
+              PRACTICE RANGE &amp; TUTORIAL (ฝึกเดิน • เล็ง CTRL • ยิง • สุ่มปืน)
+            </button>
 
             {savedSession && (
               <button
@@ -244,7 +283,7 @@ export function MainMenu() {
           </span>
         </div>
         <div className="font-mono text-[11px] text-slate-400">
-          WASD Move • LMB/RMB Shoot/Zoom • Q/C/X Agent Skills • E Math Quiz • R Reload • Tab Scoreboard
+          WASD Move • Shift Sprint • Ctrl Aim • LMB Shoot • R Reload • RR Math &amp; Roll • Q/C/X Skills • Tab Score
         </div>
       </footer>
     </div>

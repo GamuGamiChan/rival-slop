@@ -5,17 +5,18 @@ import { useGameStore } from '../store/useGameStore.ts'
 
 export function WeaponReveal() {
   const reveal = useGameStore((s) => s.weaponReveal)
+  const mathModalOpen = useGameStore((s) => s.mathModalOpen)
   const clearWeaponReveal = useGameStore((s) => s.clearWeaponReveal)
 
   useEffect(() => {
-    if (!reveal) return
+    if (!reveal || mathModalOpen) return
     const timer = window.setTimeout(() => {
       clearWeaponReveal()
-    }, 3200)
+    }, 3000)
     return () => window.clearTimeout(timer)
-  }, [reveal, clearWeaponReveal])
+  }, [reveal, mathModalOpen, clearWeaponReveal])
 
-  if (!reveal) return null
+  if (!reveal || mathModalOpen) return null
   const spec = WEAPONS[reveal.weapon]
   const dmgScore = Math.min(100, Math.round(((spec.damage * spec.pellets) / 108) * 100))
   const rofScore = Math.min(100, Math.round((1 - (spec.fireRateMs - 100) / 1100) * 100))

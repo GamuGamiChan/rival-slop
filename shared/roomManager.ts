@@ -939,7 +939,7 @@ export class RoomManager {
       z: player.position.z,
     }
     const castOrigin =
-      Math.hypot(origin.x - authEye.x, origin.y - authEye.y, origin.z - authEye.z) <= 2.4
+      Math.hypot(origin.x - authEye.x, origin.y - authEye.y, origin.z - authEye.z) <= 4.0
         ? origin
         : authEye
     const dir = normalizeVec3(rawDirection)
@@ -1306,7 +1306,7 @@ export class RoomManager {
       origin.y - authEye.y,
       origin.z - authEye.z,
     )
-    const rayOrigin = originDelta <= 2.4 ? origin : authEye
+    const rayOrigin = originDelta <= 4.0 ? origin : authEye
     const baseDir = normalizeVec3(rawDirection)
     const barriers = this.getActiveBarrierBoxes(room, now)
 

@@ -1,10 +1,22 @@
-import { Brain, Crosshair, Eye, Flame, Heart, Shield, Skull, Target, Zap } from 'lucide-react'
+import {
+  Brain,
+  Crosshair,
+  Eye,
+  Flame,
+  Heart,
+  Keyboard,
+  Lock,
+  Shield,
+  Skull,
+  Target,
+  Unlock,
+  Zap,
+} from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { AGENTS } from '../../shared/agents.ts'
 import type { SkillSlot } from '../../shared/types.ts'
 import { WEAPONS } from '../../shared/weapons.ts'
 import { soundEngine } from '../game/sound.ts'
-import { multiplayerClient } from '../multiplayer/client.ts'
 import { selectMyPlayer, useGameStore } from '../store/useGameStore.ts'
 
 function formatTimer(ms: number): string {
@@ -22,18 +34,28 @@ export function GameHUD() {
   const mathModalOpen = useGameStore((s) => s.mathModalOpen)
   const pauseOpen = useGameStore((s) => s.pauseOpen)
   const isAdsZoom = useGameStore((s) => s.isAdsZoom)
+  const isSprinting = useGameStore((s) => s.isSprinting)
+  const practiceMode = useGameStore((s) => s.practiceMode)
+  const showControlsRef = useGameStore((s) => s.showControlsRef)
+  const toggleControlsRef = useGameStore((s) => s.toggleControlsRef)
   const hitMarker = useGameStore((s) => s.hitMarker)
   const lastDamageTaken = useGameStore((s) => s.lastDamageTaken)
   const lastSkillBanner = useGameStore((s) => s.lastSkillBanner)
   const recentKills = useGameStore((s) => s.recentKills)
   const connectionStatus = useGameStore((s) => s.connectionStatus)
+  const lastShotVisualAt = useGameStore((s) => s.lastShotVisualAt)
+  const rrHintUntil = useGameStore((s) => s.rrHintUntil)
 
   const [nowTick, setNowTick] = useState(() => Date.now())
+  const [perfNowTick, setPerfNowTick] = useState(() => performance.now())
   const lastBeepSecRef = useRef<number | null>(null)
   const prevPhaseRef = useRef<string | null>(null)
 
   useEffect(() => {
-    const id = window.setInterval(() => setNowTick(Date.now()), 100)
+    const id = window.setInterval(() => {
+      setNowTick(Date.now())
+      setPerfNowTick(performance.now())
+    }, 60)
     return () => window.clearInterval(id)
   }, [])
 
@@ -104,13 +126,17 @@ export function GameHUD() {
   const showHitMarker = hitMarker && nowTick - hitMarker.timestamp < 320
   const showDamageFlash = lastDamageTaken && nowTick - lastDamageTaken.timestamp < 380
   const showSkillToast = lastSkillBanner && nowTick - lastSkillBanner.receivedAt < 2200
+  const showRrHint = rrHintUntil > nowTick && !mathModalOpen && !pauseOpen
+  const shotBloomPx =
+    lastShotVisualAt > 0 && perfNowTick - lastShotVisualAt < 140
+      ? Math.round((1 - (perfNowTick - lastShotVisualAt) / 140) * (isAdsZoom ? 5 : 9))
+      : 0
   const respawnSec =
     !me.alive && me.respawnAt ? Math.max(0.1, (me.respawnAt - serverNow) / 1000).toFixed(1) : null
-  const lowTime = room.phase === 'playing' && timeLeftMs <= 15000
+  const lowTime = !practiceMode && room.phase === 'playing' && timeLeftMs <= 15000
 
   const openMathTerminal = () => {
-    if (document.pointerLockElement) document.exitPointerLock()
-    multiplayerClient.requestQuestion()
+    window.dispatchEvent(new CustomEvent('math-rivals-open-math'))
   }
 
   const triggerSkillFromHud = (slot: SkillSlot) => {
@@ -175,20 +201,24 @@ export function GameHUD() {
           </div>
 
           <div
-            className={`hud-panel hud-cut px-6 py-2 border-2 text-center min-w-[134px] ${
-              lowTime ? 'border-rose-500 animate-pulse' : 'border-slate-600/80'
+            className={`hud-panel hud-cut px-6 py-2 border-2 text-center min-w-[144px] ${
+              practiceMode
+                ? 'border-emerald-400/70'
+                : lowTime
+                  ? 'border-rose-500 animate-pulse'
+                  : 'border-slate-600/80'
             }`}
           >
             <div className="text-[9px] font-display tracking-[0.24em] text-slate-400 uppercase">
-              {room.phase === 'countdown' ? 'STARTING' : 'MATCH TIME'}
+              {practiceMode ? 'PRACTICE RANGE' : room.phase === 'countdown' ? 'STARTING' : 'MATCH TIME'}
             </div>
             <div
               id="hud-match-timer"
               className={`font-display text-3xl font-black tracking-wider ${
-                lowTime ? 'text-rose-400' : 'text-white'
+                practiceMode ? 'text-emerald-300' : lowTime ? 'text-rose-400' : 'text-white'
               }`}
             >
-              {formatTimer(timeLeftMs)}
+              {practiceMode ? 'FREE' : formatTimer(timeLeftMs)}
             </div>
           </div>
 
@@ -229,10 +259,23 @@ export function GameHUD() {
         </div>
       </div>
 
-      {/* TOP LEFT — Live Kill Feed */}
+      {/* TOP LEFT — Room Info, Pointer Lock Status Badge & Live Kill Feed */}
       <div className="fixed top-4 left-4 space-y-1.5 max-w-xs">
-        <div className="text-[10px] font-display tracking-[0.22em] text-slate-400 uppercase px-1">
-          ROOM {room.roomCode} • {agentSpec.name}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[10px] font-display tracking-[0.2em] text-slate-300 uppercase px-2 py-0.5 bg-slate-950/80 border border-slate-700/80">
+            {practiceMode ? 'TRAINING RANGE' : `ROOM ${room.roomCode}`} • {agentSpec.name}
+          </span>
+          <span
+            id="hud-pointer-lock-status"
+            className={`inline-flex items-center gap-1 text-[10px] font-display tracking-wider uppercase px-2 py-0.5 border ${
+              pointerLocked
+                ? 'bg-emerald-950/80 border-emerald-400/70 text-emerald-300'
+                : 'bg-slate-950/85 border-cyan-500/45 text-cyan-300'
+            }`}
+          >
+            {pointerLocked ? <Lock className="w-2.5 h-2.5" /> : <Unlock className="w-2.5 h-2.5" />}
+            {pointerLocked ? 'AIM LOCKED' : 'CLICK TO LOCK'}
+          </span>
         </div>
         {recentKills.slice(0, 4).map((k) => (
           <div
@@ -254,11 +297,18 @@ export function GameHUD() {
         ))}
       </div>
 
-      {/* TOP RIGHT — Compact Live Leaderboard */}
-      <div className="fixed top-4 right-4 w-56 space-y-1 hidden sm:block">
-        <div className="flex items-center justify-between px-2 text-[10px] font-display tracking-[0.2em] text-slate-400 uppercase">
-          <span>LIVE RANKING</span>
-          <span>[TAB]</span>
+      {/* TOP RIGHT — Compact Live Leaderboard + [H] In-Game Controls Reference */}
+      <div className="fixed top-4 right-4 w-56 space-y-1.5 hidden sm:block">
+        <div className="flex items-center justify-between px-1 text-[10px] font-display tracking-[0.18em] text-slate-400 uppercase">
+          <span>{practiceMode ? 'TRAINING STATS' : 'LIVE RANKING [TAB]'}</span>
+          <button
+            id="btn-hud-controls-ref"
+            type="button"
+            onClick={toggleControlsRef}
+            className="pointer-events-auto inline-flex items-center gap-1 px-1.5 py-0.5 bg-slate-950/85 hover:bg-slate-800 border border-slate-700 text-cyan-300 cursor-pointer"
+          >
+            <Keyboard className="w-3 h-3" /> [H]
+          </button>
         </div>
         {room.scoreboard.slice(0, 5).map((entry) => {
           const isMe = entry.playerId === me.id
@@ -277,6 +327,26 @@ export function GameHUD() {
             </div>
           )
         })}
+
+        {/* Toggleable In-Game Control Reference Card */}
+        {showControlsRef && (
+          <div
+            id="hud-controls-ref"
+            className="hud-panel hud-cut-sm border border-cyan-500/45 p-2.5 text-[11px] space-y-1 text-slate-200 mt-2"
+          >
+            <div className="font-display text-[10px] tracking-widest text-cyan-300 border-b border-slate-800 pb-1 uppercase">
+              CONTROLS REFERENCE
+            </div>
+            <div className="flex justify-between"><span className="font-mono text-cyan-300">WASD</span><span>Move</span></div>
+            <div className="flex justify-between"><span className="font-mono text-cyan-300">SHIFT</span><span>Sprint (Hold)</span></div>
+            <div className="flex justify-between"><span className="font-mono text-cyan-300">CTRL</span><span>Aim Mode (Hold)</span></div>
+            <div className="flex justify-between"><span className="font-mono text-cyan-300">LMB</span><span>Shoot</span></div>
+            <div className="flex justify-between"><span className="font-mono text-cyan-300">R / RR</span><span>Reload / Math Roll</span></div>
+            <div className="flex justify-between"><span className="font-mono text-amber-300">Q C X</span><span>Agent Skills</span></div>
+            <div className="flex justify-between"><span className="font-mono text-cyan-300">SPACE</span><span>Jump</span></div>
+            <div className="flex justify-between"><span className="font-mono text-cyan-300">ESC / TAB</span><span>Pause / Score</span></div>
+          </div>
+        )}
       </div>
 
       {/* CENTER — Pre-Match 3-2-1 Countdown Overlay */}
@@ -291,27 +361,79 @@ export function GameHUD() {
           >
             {countdownSec}
           </div>
-          <div className="mt-4 px-4 py-2 bg-slate-950/85 border border-cyan-500/50 font-thai text-sm text-slate-200">
-            กด <span className="font-display text-cyan-300 font-bold">[E]</span> ตอบคณิตสุ่มปืน 8 แบบ • กด{' '}
-            <span className="font-display text-amber-300 font-bold">[Q] [C] [X]</span> ใช้สกิล Agent!
+          <div className="mt-4 px-4 py-2 bg-slate-950/85 border border-cyan-500/50 font-thai text-sm text-slate-200 text-center">
+            เริ่มเกมปุ๊บ! บังคับตอบโจทย์คณิตสุ่มปืน 8 แบบ • กด{' '}
+            <span className="font-display text-cyan-300 font-bold">[CTRL]</span> เล็ง •{' '}
+            <span className="font-display text-emerald-300 font-bold">[SHIFT]</span> วิ่ง •{' '}
+            <span className="font-display text-amber-300 font-bold">[RR]</span> สุ่มปืนใหม่!
           </div>
         </div>
       )}
 
-      {/* CENTER — Crosshair + Hitmarker */}
+      {/* CENTER — Crosshair (Dynamic Firing Bloom + Precision Ctrl Aim Mode Reticle) + Hitmarker */}
       {room.phase === 'playing' && me.alive && !mathModalOpen && !pauseOpen && !(isAdsZoom && me.weapon === 'sniper') && (
-        <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
+        <div
+          id="hud-crosshair"
+          data-aim-mode={isAdsZoom ? 'true' : 'false'}
+          className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center"
+        >
           {me.weapon === 'shotgun' ? (
-            <div className="w-9 h-9 rounded-full border-2 border-amber-400/80 flex items-center justify-center">
+            <div
+              className={`rounded-full border-2 flex items-center justify-center transition-all duration-75 ${
+                isAdsZoom ? 'border-cyan-300' : 'border-amber-400/85'
+              }`}
+              style={{
+                width: `${(isAdsZoom ? 28 : 36) + shotBloomPx * 2}px`,
+                height: `${(isAdsZoom ? 28 : 36) + shotBloomPx * 2}px`,
+              }}
+            >
               <div className="w-1.5 h-1.5 rounded-full bg-amber-300" />
             </div>
           ) : (
-            <div className="relative w-7 h-7 flex items-center justify-center">
-              <div className="w-1 h-1 rounded-full bg-cyan-300 shadow-[0_0_6px_#00f0ff]" />
-              <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[2px] h-2 bg-white/90" />
-              <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[2px] h-2 bg-white/90" />
-              <div className="absolute left-0 top-1/2 -translate-y-1/2 h-[2px] w-2 bg-white/90" />
-              <div className="absolute right-0 top-1/2 -translate-y-1/2 h-[2px] w-2 bg-white/90" />
+            <div
+              className="relative flex items-center justify-center transition-all duration-75"
+              style={{
+                width: `${(isAdsZoom ? 20 : 28) + shotBloomPx * 2}px`,
+                height: `${(isAdsZoom ? 20 : 28) + shotBloomPx * 2}px`,
+              }}
+            >
+              {/* Ctrl Aim Mode Precision Outer Brackets */}
+              {isAdsZoom && (
+                <div
+                  id="hud-aim-reticle"
+                  className="absolute -inset-2.5 rounded-full border border-cyan-400/75 shadow-[0_0_12px_rgba(34,211,238,0.45)]"
+                />
+              )}
+              <div
+                className={`w-1.5 h-1.5 rounded-full ${
+                  isAdsZoom
+                    ? 'bg-emerald-300 shadow-[0_0_8px_#34d399]'
+                    : 'bg-cyan-300 shadow-[0_0_6px_#00f0ff]'
+                }`}
+              />
+              <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[2px] h-2 bg-white/95" />
+              <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[2px] h-2 bg-white/95" />
+              <div className="absolute left-0 top-1/2 -translate-y-1/2 h-[2px] w-2 bg-white/95" />
+              <div className="absolute right-0 top-1/2 -translate-y-1/2 h-[2px] w-2 bg-white/95" />
+            </div>
+          )}
+
+          {/* Center Reload Progress Bar right under Crosshair */}
+          {isReloading && (
+            <div className="mt-5 w-24 space-y-0.5 text-center">
+              <div className="font-display text-[9px] font-bold tracking-widest text-amber-300 uppercase">
+                RELOADING
+              </div>
+              <div className="h-1.5 bg-slate-950/90 border border-slate-700 overflow-hidden">
+                <div className="h-full bg-amber-400" style={{ width: `${reloadProgress}%` }} />
+              </div>
+            </div>
+          )}
+
+          {/* Empty Magazine Clear Warning */}
+          {!isReloading && me.weapon && me.ammo === 0 && (
+            <div className="mt-5 px-2.5 py-0.5 bg-rose-950/90 border border-rose-400/80 font-display text-[10px] font-black tracking-wider text-rose-200 uppercase whitespace-nowrap">
+              EMPTY • PRESS [R] TO RELOAD
             </div>
           )}
 
@@ -328,11 +450,19 @@ export function GameHUD() {
                 <span className="absolute inset-x-0 top-1/2 h-[2.5px] bg-current rotate-45" />
                 <span className="absolute inset-x-0 top-1/2 h-[2.5px] bg-current -rotate-45" />
               </div>
-              {hitMarker.killed && (
-                <div className="absolute -top-9 left-1/2 -translate-x-1/2 whitespace-nowrap font-display text-xs font-black tracking-wider text-amber-300 drop-shadow">
-                  {hitMarker.headshot ? 'HEADSHOT KILL' : 'ELIMINATED'} +{hitMarker.pointsAwarded}
-                </div>
-              )}
+              <div
+                className={`absolute -top-9 left-1/2 -translate-x-1/2 whitespace-nowrap font-display text-xs font-black tracking-wider drop-shadow ${
+                  hitMarker.killed
+                    ? 'text-amber-300'
+                    : hitMarker.headshot
+                      ? 'text-rose-400'
+                      : 'text-cyan-200'
+                }`}
+              >
+                {hitMarker.killed
+                  ? `${hitMarker.headshot ? 'HEADSHOT KILL' : 'ELIMINATED'} +${hitMarker.pointsAwarded}`
+                  : `${hitMarker.headshot ? 'HEADSHOT ' : ''}-${hitMarker.damage}`}
+              </div>
             </div>
           )}
         </div>
@@ -353,9 +483,17 @@ export function GameHUD() {
         </div>
       )}
 
-      {/* CENTER PROMPT — Unarmed Math CTA */}
+      {/* CENTER PROMPT — Unarmed Math CTA + RR Double-Tap Hint */}
       {room.phase === 'playing' && me.alive && !mathModalOpen && !pauseOpen && (
         <div className="fixed bottom-32 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2">
+          {showRrHint && (
+            <div
+              id="hud-rr-hint"
+              className="px-4 py-1.5 bg-cyan-500/20 border border-cyan-400 text-cyan-200 font-thai text-xs font-bold shadow-[0_0_20px_rgba(0,229,255,0.35)]"
+            >
+              กด <span className="font-display text-white">R</span> อีกครั้ง (<span className="font-display text-amber-300">RR</span>) เพื่อทำโจทย์คณิต &amp; สุ่มปืนใหม่!
+            </div>
+          )}
           {!me.weapon && (
             <button
               id="btn-hud-open-math"
@@ -364,59 +502,81 @@ export function GameHUD() {
               className="pointer-events-auto px-6 py-3 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-display font-black text-sm tracking-wider uppercase hud-cut-sm flex items-center gap-2.5 shadow-[0_0_32px_rgba(0,229,255,0.65)] ring-2 ring-cyan-300/60 transition cursor-pointer"
             >
               <Brain className="w-5 h-5" />
-              กด [E] ตอบโจทย์คณิต เพื่อสุ่มปืน (+100 PTS +1 ULT)
+              กด [RR] ตอบโจทย์คณิต เพื่อสุ่มปืน (+100 PTS +1 ULT)
             </button>
           )}
-          {me.weapon && !pointerLocked && (
-            <div className="px-4 py-1 bg-slate-950/80 border border-cyan-500/40 text-[11px] font-display tracking-wider text-cyan-200 uppercase">
-              CLICK ARENA TO LOCK AIM • [Q][C][X] SKILLS • [E] MATH
+          {me.weapon && !pointerLocked && !showRrHint && (
+            <div className="px-4 py-1 bg-slate-950/85 border border-cyan-500/45 text-[11px] font-thai tracking-wide text-cyan-200">
+              คลิกที่สนามเพื่อล็อกเมาส์ • กด <strong className="font-display text-emerald-300">[CTRL]</strong> เล็ง • <strong className="font-display text-cyan-300">[SHIFT]</strong> วิ่ง • <strong className="font-display text-amber-300">[RR]</strong> สุ่มปืน
             </div>
           )}
         </div>
       )}
 
-      {/* BOTTOM LEFT — HP & Personal Stats */}
-      <div className="fixed bottom-4 left-4 hud-panel hud-cut border border-slate-700/80 p-3.5 min-w-[220px] space-y-2">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Heart className="w-4 h-4 text-rose-500 fill-rose-500" />
-            <span className="font-display text-2xl font-black text-white" id="hud-hp-value">
-              {me.hp}
+      {/* BOTTOM LEFT — HP, Personal Stats & Movement/Aim State Indicators */}
+      <div className="fixed bottom-4 left-4 flex flex-col items-start gap-1.5">
+        {/* Live Sprint & Ctrl Aim Mode Indicators */}
+        <div className="flex items-center gap-1.5 min-h-[22px]">
+          {isSprinting && (
+            <span
+              id="hud-sprint-indicator"
+              className="px-2 py-0.5 bg-emerald-500/25 border border-emerald-400 text-emerald-200 font-display text-[10px] font-black tracking-widest uppercase"
+            >
+              SPRINT [SHIFT]
             </span>
-            <span className="text-xs font-display text-slate-400">/ {me.maxHp}</span>
+          )}
+          {isAdsZoom && (
+            <span
+              id="hud-aim-indicator"
+              className="px-2 py-0.5 bg-cyan-500/25 border border-cyan-400 text-cyan-200 font-display text-[10px] font-black tracking-widest uppercase"
+            >
+              AIM MODE [CTRL]
+            </span>
+          )}
+        </div>
+
+        <div className="hud-panel hud-cut border border-slate-700/80 p-3.5 min-w-[224px] space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Heart className="w-4 h-4 text-rose-500 fill-rose-500" />
+              <span className="font-display text-2xl font-black text-white" id="hud-hp-value">
+                {me.hp}
+              </span>
+              <span className="text-xs font-display text-slate-400">/ {me.maxHp}</span>
+            </div>
+            <span
+              className={`px-2 py-0.5 text-[10px] font-display font-bold uppercase ${
+                me.team === 'blue' ? 'bg-cyan-500/20 text-cyan-300' : 'bg-rose-500/20 text-rose-300'
+              }`}
+            >
+              {me.team}
+            </span>
           </div>
-          <span
-            className={`px-2 py-0.5 text-[10px] font-display font-bold uppercase ${
-              me.team === 'blue' ? 'bg-cyan-500/20 text-cyan-300' : 'bg-rose-500/20 text-rose-300'
-            }`}
-          >
-            {me.team}
-          </span>
-        </div>
 
-        <div className="h-2.5 w-full bg-slate-950 border border-slate-800 overflow-hidden">
-          <div
-            className={`h-full transition-all duration-150 ${
-              me.maxHp > 100
-                ? 'bg-emerald-400'
-                : me.hp > 50
-                  ? 'bg-cyan-400'
-                  : me.hp > 25
-                    ? 'bg-amber-400'
-                    : 'bg-rose-500'
-            }`}
-            style={{ width: `${Math.max(0, Math.min(100, (me.hp / me.maxHp) * 100))}%` }}
-          />
-        </div>
+          <div className="h-2.5 w-full bg-slate-950 border border-slate-800 overflow-hidden">
+            <div
+              className={`h-full transition-all duration-150 ${
+                me.maxHp > 100
+                  ? 'bg-emerald-400'
+                  : me.hp > 50
+                    ? 'bg-cyan-400'
+                    : me.hp > 25
+                      ? 'bg-amber-400'
+                      : 'bg-rose-500'
+              }`}
+              style={{ width: `${Math.max(0, Math.min(100, (me.hp / me.maxHp) * 100))}%` }}
+            />
+          </div>
 
-        <div className="flex items-center justify-between text-xs pt-0.5 border-t border-slate-800">
-          <span className="text-slate-400">
-            SCORE <strong className="font-display text-white ml-1" id="hud-my-score">{me.totalScore}</strong>
-          </span>
-          <span className="text-emerald-400 font-semibold">✓ {me.correctAnswers}</span>
-          <span className="text-cyan-300 font-semibold">
-            K/D {me.kills}/{me.deaths}
-          </span>
+          <div className="flex items-center justify-between text-xs pt-0.5 border-t border-slate-800">
+            <span className="text-slate-400">
+              SCORE <strong className="font-display text-white ml-1" id="hud-my-score">{me.totalScore}</strong>
+            </span>
+            <span className="text-emerald-400 font-semibold">✓ {me.correctAnswers}</span>
+            <span className="text-cyan-300 font-semibold">
+              K/D {me.kills}/{me.deaths}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -530,7 +690,7 @@ export function GameHUD() {
             onClick={openMathTerminal}
             className="pointer-events-auto px-3 py-1.5 bg-slate-950/85 hover:bg-cyan-500/20 border border-cyan-500/50 text-cyan-300 text-[11px] font-display tracking-wider uppercase flex items-center gap-1.5 hud-cut-sm cursor-pointer"
           >
-            <Brain className="w-3.5 h-3.5" /> [E] MATH (+100 &amp; REROLL)
+            <Brain className="w-3.5 h-3.5" /> [RR] MATH &amp; ROLL (+100)
           </button>
         )}
 
@@ -578,7 +738,7 @@ export function GameHUD() {
                     <span className="font-display text-sm text-slate-400">/ {weaponSpec.magSize}</span>
                   </div>
                   <span className="text-[10px] font-mono text-slate-400">
-                    {me.ammo === 0 ? '[R] RELOAD' : '[R] • [RMB]'}
+                    {me.ammo === 0 ? '[R] RELOAD' : '[R] RELOAD • [RR] ROLL'}
                   </span>
                 </div>
               )}
@@ -590,7 +750,7 @@ export function GameHUD() {
                   NO WEAPON EQUIPPED
                 </div>
                 <div className="font-thai text-xs text-cyan-300">
-                  กด [E] ตอบคณิตเพื่อสุ่มปืน 8 แบบ
+                  กด [RR] ตอบคณิตเพื่อสุ่มปืน 8 แบบ
                 </div>
               </div>
               <Crosshair className="w-6 h-6 text-slate-600" />

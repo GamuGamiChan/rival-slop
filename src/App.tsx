@@ -1,3 +1,4 @@
+import { ControlsSettingsModal } from './components/ControlsSettingsModal.tsx'
 import { GameHUD } from './components/GameHUD.tsx'
 import { LobbyScreen } from './components/LobbyScreen.tsx'
 import { MainMenu } from './components/MainMenu.tsx'
@@ -6,6 +7,7 @@ import { PauseMenu } from './components/PauseMenu.tsx'
 import { ResultScreen } from './components/ResultScreen.tsx'
 import { RoomScreen } from './components/RoomScreen.tsx'
 import { ScoreboardOverlay } from './components/ScoreboardOverlay.tsx'
+import { TutorialOverlay } from './components/TutorialOverlay.tsx'
 import { WeaponReveal } from './components/WeaponReveal.tsx'
 import { ArenaScene } from './game/ArenaScene.tsx'
 import { useGameStore } from './store/useGameStore.ts'
@@ -14,8 +16,8 @@ export default function App() {
   const screen = useGameStore((s) => s.screen)
 
   return (
-    <div className="relative h-full w-full overflow-hidden bg-[#050811] hud-scanline">
-      {/* Persistent 3D Neon Arena WebGL Layer (live backdrop on menus + FPS world in arena) */}
+    <div className="relative h-full w-full overflow-hidden bg-[#0a1324] hud-scanline">
+      {/* Persistent 3D Futuristic Arena WebGL Layer */}
       <ArenaScene />
 
       {/* Active Game Screen */}
@@ -25,6 +27,7 @@ export default function App() {
       {screen === 'arena' && (
         <>
           <GameHUD />
+          <TutorialOverlay />
           <MathModal />
           <WeaponReveal />
           <ScoreboardOverlay />
@@ -32,6 +35,9 @@ export default function App() {
         </>
       )}
       {screen === 'result' && <ResultScreen />}
+
+      {/* Main Menu Controls Guide & Settings Modal */}
+      <ControlsSettingsModal />
     </div>
   )
 }

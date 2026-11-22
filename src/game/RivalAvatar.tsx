@@ -18,12 +18,13 @@ export function RivalAvatar({ player }: RivalAvatarProps) {
   const reconBeaconRef = useRef<THREE.Mesh>(null)
   const strideRef = useRef(0)
   const smoothedPosRef = useRef(new THREE.Vector3(player.position.x, player.position.y, player.position.z))
+  const targetVecRef = useRef(new THREE.Vector3())
   const smoothedYawRef = useRef(player.yaw)
 
   const myTeam = useGameStore((s) => selectMyPlayer(s)?.team ?? null)
   const teamColor = player.team === 'blue' ? '#00e5ff' : '#ff2e5b'
   const agentAccent = AGENTS[player.agent].accentColor
-  const armorBase = player.team === 'blue' ? '#0d2238' : '#31101d'
+  const armorBase = player.team === 'blue' ? '#244b78' : '#6b233d'
   const weaponColor = player.weapon ? WEAPONS[player.weapon].accentColor : '#64748b'
 
   useFrame(({ clock }, rawDelta) => {
@@ -45,7 +46,8 @@ export function RivalAvatar({ player }: RivalAvatarProps) {
     const prevZ = smoothedPosRef.current.z
 
     const alpha = Math.min(1, dt * 16)
-    smoothedPosRef.current.lerp(new THREE.Vector3(targetPos.x, targetPos.y, targetPos.z), alpha)
+    targetVecRef.current.set(targetPos.x, targetPos.y, targetPos.z)
+    smoothedPosRef.current.lerp(targetVecRef.current, alpha)
 
     let diff = targetYaw - smoothedYawRef.current
     while (diff > Math.PI) diff -= Math.PI * 2
@@ -109,17 +111,17 @@ export function RivalAvatar({ player }: RivalAvatarProps) {
       {/* Legs */}
       <mesh ref={leftLegRef} position={[-0.16, 0.36, 0]} castShadow>
         <boxGeometry args={[0.2, 0.72, 0.24]} />
-        <meshStandardMaterial color={armorBase} metalness={0.55} roughness={0.35} />
+        <meshStandardMaterial color={armorBase} metalness={0.26} roughness={0.42} />
       </mesh>
       <mesh ref={rightLegRef} position={[0.16, 0.36, 0]} castShadow>
         <boxGeometry args={[0.2, 0.72, 0.24]} />
-        <meshStandardMaterial color={armorBase} metalness={0.55} roughness={0.35} />
+        <meshStandardMaterial color={armorBase} metalness={0.26} roughness={0.42} />
       </mesh>
 
       {/* Torso */}
       <mesh position={[0, 1.04, 0]} castShadow>
         <boxGeometry args={[0.64, 0.68, 0.36]} />
-        <meshStandardMaterial color={armorBase} metalness={0.6} roughness={0.3} />
+        <meshStandardMaterial color={armorBase} metalness={0.28} roughness={0.38} />
       </mesh>
       {/* Chest Core (Agent Accent Glow) */}
       <mesh position={[0, 1.08, -0.19]}>
@@ -134,27 +136,27 @@ export function RivalAvatar({ player }: RivalAvatarProps) {
       {/* Shoulders */}
       <mesh position={[-0.42, 1.24, 0]}>
         <boxGeometry args={[0.2, 0.24, 0.34]} />
-        <meshStandardMaterial color={teamColor} emissive={teamColor} emissiveIntensity={1.2} metalness={0.5} />
+        <meshStandardMaterial color={teamColor} emissive={teamColor} emissiveIntensity={1.2} metalness={0.28} />
       </mesh>
       <mesh position={[0.42, 1.24, 0]}>
         <boxGeometry args={[0.2, 0.24, 0.34]} />
-        <meshStandardMaterial color={teamColor} emissive={teamColor} emissiveIntensity={1.2} metalness={0.5} />
+        <meshStandardMaterial color={teamColor} emissive={teamColor} emissiveIntensity={1.2} metalness={0.28} />
       </mesh>
 
       {/* Arms */}
       <mesh position={[-0.42, 0.96, -0.06]}>
         <boxGeometry args={[0.17, 0.44, 0.2]} />
-        <meshStandardMaterial color={armorBase} metalness={0.55} roughness={0.4} />
+        <meshStandardMaterial color={armorBase} metalness={0.26} roughness={0.42} />
       </mesh>
       <mesh position={[0.42, 0.98, -0.14]} rotation={[0.45, 0, 0]}>
         <boxGeometry args={[0.17, 0.46, 0.2]} />
-        <meshStandardMaterial color={armorBase} metalness={0.55} roughness={0.4} />
+        <meshStandardMaterial color={armorBase} metalness={0.26} roughness={0.42} />
       </mesh>
 
       {/* Cyber Helmet */}
       <mesh position={[0, 1.58, 0]} castShadow>
         <boxGeometry args={[0.44, 0.42, 0.44]} />
-        <meshStandardMaterial color="#0f172a" metalness={0.7} roughness={0.25} />
+        <meshStandardMaterial color="#2a3d5c" metalness={0.28} roughness={0.35} />
       </mesh>
       <mesh position={[0, 1.6, -0.225]}>
         <boxGeometry args={[0.36, 0.14, 0.04]} />
@@ -170,7 +172,7 @@ export function RivalAvatar({ player }: RivalAvatarProps) {
         <group position={[0.38, 1.02, -0.45]}>
           <mesh>
             <boxGeometry args={[0.09, 0.1, weaponLen]} />
-            <meshStandardMaterial color="#e2e8f0" metalness={0.6} roughness={0.3} />
+            <meshStandardMaterial color="#e2e8f0" metalness={0.28} roughness={0.34} />
           </mesh>
           <mesh position={[0, 0.03, -0.12]}>
             <boxGeometry args={[0.1, 0.025, weaponLen * 0.72]} />

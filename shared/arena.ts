@@ -55,11 +55,11 @@ export const ARENA_BOXES: ArenaBox[] = [
 
   // Central Elevated Neon Core Platform (walkable top at Y = 2.0)
   { id: 'center-deck', minX: -6.5, maxX: 6.5, minY: 0, maxY: 2.0, minZ: -5.5, maxZ: 5.5, kind: 'platform', accent: 'neutral' },
-  // Stepped Ramps onto Central Deck (West & East sides)
-  { id: 'ramp-w1', minX: -8.5, maxX: -6.5, minY: 0, maxY: 1.0, minZ: -3.2, maxZ: 3.2, kind: 'platform', accent: 'neutral' },
-  { id: 'ramp-w2', minX: -10.5, maxX: -8.5, minY: 0, maxY: 0.48, minZ: -3.2, maxZ: 3.2, kind: 'platform', accent: 'neutral' },
-  { id: 'ramp-e1', minX: 6.5, maxX: 8.5, minY: 0, maxY: 1.0, minZ: -3.2, maxZ: 3.2, kind: 'platform', accent: 'neutral' },
-  { id: 'ramp-e2', minX: 8.5, maxX: 10.5, minY: 0, maxY: 0.48, minZ: -3.2, maxZ: 3.2, kind: 'platform', accent: 'neutral' },
+  // Stepped Ramps onto Central Deck (West & East sides — smooth 0 -> 0.65 -> 1.32 -> 2.0 climb)
+  { id: 'ramp-w1', minX: -8.5, maxX: -6.5, minY: 0, maxY: 1.32, minZ: -3.2, maxZ: 3.2, kind: 'platform', accent: 'neutral' },
+  { id: 'ramp-w2', minX: -10.5, maxX: -8.5, minY: 0, maxY: 0.65, minZ: -3.2, maxZ: 3.2, kind: 'platform', accent: 'neutral' },
+  { id: 'ramp-e1', minX: 6.5, maxX: 8.5, minY: 0, maxY: 1.32, minZ: -3.2, maxZ: 3.2, kind: 'platform', accent: 'neutral' },
+  { id: 'ramp-e2', minX: 8.5, maxX: 10.5, minY: 0, maxY: 0.65, minZ: -3.2, maxZ: 3.2, kind: 'platform', accent: 'neutral' },
 
   // Center Deck Chest-High Cover Shields (Blue & Red edges)
   { id: 'center-shield-n', minX: -3.0, maxX: 3.0, minY: 2.0, maxY: 3.3, minZ: -5.2, maxZ: -4.6, kind: 'glass', accent: 'blue' },
@@ -141,44 +141,46 @@ export function resolvePlayerMovement(
   extraBoxes: ArenaBox[] = [],
 ): { position: Vec3; velocityY: number; grounded: boolean; hitJumpPad: boolean } {
   const r = PLAYER_DIMENSIONS.radius
-  const stepHeight = 0.65
+  const stepHeight = 0.75
   let x = desired.x
   let y = desired.y
   let z = desired.z
   let vy = velocityY
   const allBoxes = extraBoxes.length > 0 ? [...ARENA_BOXES, ...extraBoxes] : ARENA_BOXES
 
-  // 1. Resolve horizontal overlaps against boxes we cannot step onto
-  for (const box of allBoxes) {
-    // Only collide horizontally if player vertical body overlaps box vertical extent
-    const playerBottom = current.y
-    const playerTop = current.y + PLAYER_DIMENSIONS.height
-    if (playerTop <= box.minY + 0.05) continue
-    if (playerBottom >= box.maxY - stepHeight) continue
+  // 1. Resolve horizontal overlaps against boxes we cannot step onto (2 passes for crisp corner sliding)
+  for (let pass = 0; pass < 2; pass++) {
+    for (const box of allBoxes) {
+      // Only collide horizontally if player vertical body overlaps box vertical extent
+      const playerBottom = current.y
+      const playerTop = current.y + PLAYER_DIMENSIONS.height
+      if (playerTop <= box.minY + 0.05) continue
+      if (playerBottom >= box.maxY - stepHeight) continue
 
-    const closestX = Math.max(box.minX, Math.min(x, box.maxX))
-    const closestZ = Math.max(box.minZ, Math.min(z, box.maxZ))
-    const dx = x - closestX
-    const dz = z - closestZ
-    const distSq = dx * dx + dz * dz
+      const closestX = Math.max(box.minX, Math.min(x, box.maxX))
+      const closestZ = Math.max(box.minZ, Math.min(z, box.maxZ))
+      const dx = x - closestX
+      const dz = z - closestZ
+      const distSq = dx * dx + dz * dz
 
-    if (distSq < r * r) {
-      const dist = Math.sqrt(distSq)
-      if (dist > 0.0001) {
-        const push = r - dist
-        x += (dx / dist) * push
-        z += (dz / dist) * push
-      } else {
-        // Inside box center fallback: push along smallest overlap axis
-        const penLeft = Math.abs(x - box.minX)
-        const penRight = Math.abs(box.maxX - x)
-        const penBack = Math.abs(z - box.minZ)
-        const penFront = Math.abs(box.maxZ - z)
-        const m = Math.min(penLeft, penRight, penBack, penFront)
-        if (m === penLeft) x = box.minX - r
-        else if (m === penRight) x = box.maxX + r
-        else if (m === penBack) z = box.minZ - r
-        else z = box.maxZ + r
+      if (distSq < r * r) {
+        const dist = Math.sqrt(distSq)
+        if (dist > 0.0001) {
+          const push = r - dist
+          x += (dx / dist) * push
+          z += (dz / dist) * push
+        } else {
+          // Inside box center fallback: push along smallest overlap axis
+          const penLeft = Math.abs(x - box.minX)
+          const penRight = Math.abs(box.maxX - x)
+          const penBack = Math.abs(z - box.minZ)
+          const penFront = Math.abs(box.maxZ - z)
+          const m = Math.min(penLeft, penRight, penBack, penFront)
+          if (m === penLeft) x = box.minX - r
+          else if (m === penRight) x = box.maxX + r
+          else if (m === penBack) z = box.minZ - r
+          else z = box.maxZ + r
+        }
       }
     }
   }
@@ -320,29 +322,29 @@ export function raycastPlayerHitbox(
   targetPos: Vec3,
   maxDist: number,
 ): { distance: number; headshot: boolean } | null {
-  // 1. Check Head Sphere (slightly generous for smooth online FPS feel)
+  // 1. Check Head Sphere (responsive online FPS feel)
   const headCenter: Vec3 = {
     x: targetPos.x,
     y: targetPos.y + PLAYER_DIMENSIONS.headCenterY,
     z: targetPos.z,
   }
-  const headT = rayIntersectsSphere(origin, dir, headCenter, PLAYER_DIMENSIONS.headRadius + 0.06, maxDist)
+  const headT = rayIntersectsSphere(origin, dir, headCenter, PLAYER_DIMENSIONS.headRadius + 0.1, maxDist)
 
   // 2. Check Body AABB
-  const r = PLAYER_DIMENSIONS.bodyRadius + 0.08
+  const r = PLAYER_DIMENSIONS.bodyRadius + 0.14
   const bodyBox: ArenaBox = {
     id: 'body',
     minX: targetPos.x - r,
     maxX: targetPos.x + r,
     minY: targetPos.y + PLAYER_DIMENSIONS.bodyMinY,
-    maxY: targetPos.y + PLAYER_DIMENSIONS.bodyMaxY,
+    maxY: targetPos.y + 1.42,
     minZ: targetPos.z - r,
     maxZ: targetPos.z + r,
     kind: 'cover',
   }
   const bodyT = rayIntersectsBox(origin, dir, bodyBox, maxDist)
 
-  if (headT !== null && (bodyT === null || headT <= bodyT + 0.15)) {
+  if (headT !== null && (bodyT === null || headT <= bodyT + 0.18)) {
     return { distance: headT, headshot: true }
   }
   if (bodyT !== null) {
