@@ -62,8 +62,10 @@ function BeamSegment({ origin, target, color, thickness, createdAt }: BeamSegmen
   )
 }
 
-function beamThickness(weapon: WeaponId): number {
+function beamThickness(weapon: WeaponId | 'melee'): number {
   switch (weapon) {
+    case 'melee':
+      return 0.038
     case 'sniper':
       return 0.052
     case 'revolver':
@@ -88,14 +90,16 @@ export function EffectsLayer() {
     <group>
       {tracers.map((t) => {
         const color =
-          t.weapon === 'sniper' ||
-          t.weapon === 'revolver' ||
-          t.weapon === 'lmg' ||
-          t.weapon === 'burst'
-            ? WEAPONS[t.weapon].accentColor
-            : t.shooterTeam === 'blue'
-              ? '#00f0ff'
-              : '#ff2e5b'
+          t.weapon === 'melee'
+            ? '#fb7185'
+            : t.weapon === 'sniper' ||
+                t.weapon === 'revolver' ||
+                t.weapon === 'lmg' ||
+                t.weapon === 'burst'
+              ? WEAPONS[t.weapon].accentColor
+              : t.shooterTeam === 'blue'
+                ? '#00f0ff'
+                : '#ff2e5b'
         const thickness = beamThickness(t.weapon)
         return t.endpoints.map((ep, idx) => (
           <BeamSegment

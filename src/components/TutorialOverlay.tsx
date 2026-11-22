@@ -3,7 +3,7 @@ import { useGameStore, type TutorialProgress } from '../store/useGameStore.ts'
 
 const TUTORIAL_STEPS: Array<{ key: keyof TutorialProgress; label: string; hint: string }> = [
   { key: 'moved', label: '1. เดินด้วยปุ่ม WASD', hint: 'กด W A S D เพื่อเคลื่อนที่รอบสนาม' },
-  { key: 'looked', label: '2. หันกล้องด้วยเมาส์', hint: 'คลิกที่สนามแล้วขยับเมาส์มองรอบๆ' },
+  { key: 'looked', label: '2. กด [TAB] เปิด/ปิดหันด้วยเมาส์', hint: 'กด Tab (หรือคลิกสนาม) เพื่อหันเมาส์ กด Tab อีกครั้งเพื่อออก' },
   { key: 'aimed', label: '3. กด Ctrl ค้างเพื่อเล็ง (Aim Mode)', hint: 'กด Ctrl ซ้าย/ขวา ค้างเพื่อซูมเป้า' },
   { key: 'sprinted', label: '4. กด Shift ค้างขณะเดินเพื่อวิ่งเร็ว', hint: 'กด Shift + WASD วิ่งไวขึ้น' },
   { key: 'shot', label: '5. คลิกซ้ายเพื่อยิงเป้าจำลอง', hint: 'เล็งที่หุ่นเป้า Hologram แล้วคลิกซ้าย' },

@@ -328,7 +328,60 @@ function SniperMesh({ accent }: { accent: string }) {
   )
 }
 
-function getMuzzleZ(weapon: WeaponId): number {
+function CyberFistsMesh({
+  leftFistRef,
+  rightFistRef,
+  accent,
+}: {
+  leftFistRef: React.RefObject<THREE.Group | null>
+  rightFistRef: React.RefObject<THREE.Group | null>
+  accent: string
+}) {
+  return (
+    <group>
+      {/* Left Brawler Cyber Gauntlet (Guard Stance) */}
+      <group ref={leftFistRef} position={[-0.24, -0.02, -0.06]} rotation={[0.25, 0.28, -0.18]}>
+        {/* Forearm armor */}
+        <mesh position={[0, -0.04, 0.14]}>
+          <boxGeometry args={[0.078, 0.082, 0.22]} />
+          <meshStandardMaterial color="#1e293b" metalness={0.72} roughness={0.32} />
+        </mesh>
+        {/* Knuckle fist block */}
+        <mesh position={[0, 0.01, -0.01]}>
+          <boxGeometry args={[0.092, 0.088, 0.11]} />
+          <meshStandardMaterial color="#334155" metalness={0.78} roughness={0.25} />
+        </mesh>
+        {/* Glowing plasma knuckle bar */}
+        <mesh position={[0, 0.022, -0.068]}>
+          <boxGeometry args={[0.086, 0.024, 0.018]} />
+          <meshStandardMaterial color={accent} emissive={accent} emissiveIntensity={3.2} />
+        </mesh>
+      </group>
+
+      {/* Right Brawler Cyber Gauntlet (Primary Punching Fist) */}
+      <group ref={rightFistRef} position={[0.06, -0.01, -0.1]} rotation={[0.22, -0.22, 0.15]}>
+        {/* Forearm armor */}
+        <mesh position={[0, -0.04, 0.14]}>
+          <boxGeometry args={[0.082, 0.086, 0.24]} />
+          <meshStandardMaterial color="#1e293b" metalness={0.72} roughness={0.32} />
+        </mesh>
+        {/* Knuckle fist block */}
+        <mesh position={[0, 0.01, -0.01]}>
+          <boxGeometry args={[0.098, 0.092, 0.12]} />
+          <meshStandardMaterial color="#475569" metalness={0.8} roughness={0.22} />
+        </mesh>
+        {/* Glowing plasma knuckle bar */}
+        <mesh position={[0, 0.024, -0.072]}>
+          <boxGeometry args={[0.09, 0.028, 0.02]} />
+          <meshStandardMaterial color={accent} emissive={accent} emissiveIntensity={3.6} />
+        </mesh>
+      </group>
+    </group>
+  )
+}
+
+function getMuzzleZ(weapon: WeaponId | null): number {
+  if (!weapon) return -0.34
   switch (weapon) {
     case 'sniper':
       return -0.9
@@ -353,6 +406,10 @@ export function WeaponViewmodel() {
   const rootRef = useRef<THREE.Group>(null)
   const weaponPivotRef = useRef<THREE.Group>(null)
   const muzzleRef = useRef<THREE.Mesh>(null)
+  const leftFistRef = useRef<THREE.Group>(null)
+  const rightFistRef = useRef<THREE.Group>(null)
+  const punchHandToggleRef = useRef(0)
+  const lastTrackedShotAtRef = useRef(0)
   const bobPhaseRef = useRef(0)
   const prevPosRef = useRef(new THREE.Vector3())
   const adsLerpRef = useRef(0)
@@ -373,7 +430,8 @@ export function WeaponViewmodel() {
     const me = selectMyPlayer(state)
 
     const hideForScope = state.isAdsZoom && me?.weapon === 'sniper'
-    root.visible = Boolean(me?.weapon && me.alive && state.room?.phase === 'playing' && !hideForScope)
+    // Always show either the equipped 3D weapon OR the 3D Cyber Fists when alive in playing phase!
+    root.visible = Boolean(me && me.alive && state.room?.phase === 'playing' && !hideForScope)
     if (!root.visible) return
 
     root.position.copy(camera.position)
@@ -393,11 +451,18 @@ export function WeaponViewmodel() {
     const targetSprint = state.isSprinting && !state.isAdsZoom ? 1 : 0
     sprintLerpRef.current += (targetSprint - sprintLerpRef.current) * Math.min(1, dt * 12)
 
+    if (state.lastShotVisualAt !== lastTrackedShotAtRef.current) {
+      lastTrackedShotAtRef.current = state.lastShotVisualAt
+      punchHandToggleRef.current = (punchHandToggleRef.current + 1) % 2
+    }
+
     const msSinceShot = performance.now() - state.lastShotVisualAt
+    const isUnarmed = !me?.weapon
     const recoil = msSinceShot < 165 ? Math.pow(1 - msSinceShot / 165, 2) : 0
+    const punchThrust = isUnarmed && msSinceShot < 220 ? Math.sin((msSinceShot / 220) * Math.PI) : 0
 
     const nowServer = Date.now() + state.clockOffsetMs
-    const isReloading = Boolean(me?.reloadingUntil && nowServer < me.reloadingUntil)
+    const isReloading = Boolean(!isUnarmed && me?.reloadingUntil && nowServer < me.reloadingUntil)
     const spec = me?.weapon ? WEAPONS[me.weapon] : null
     const reloadFrac =
       isReloading && spec && me?.reloadingUntil
@@ -416,12 +481,24 @@ export function WeaponViewmodel() {
     const bobX = Math.cos(bobPhaseRef.current) * 0.008 * speedNorm * bobAmp
     const bobY = Math.abs(Math.sin(bobPhaseRef.current)) * 0.011 * speedNorm * bobAmp
 
-    pivot.position.set(baseX + bobX, baseY - bobY + reloadDrop + recoil * 0.018, baseZ + recoil * 0.075)
+    pivot.position.set(
+      baseX + bobX,
+      baseY - bobY + reloadDrop + (isUnarmed ? punchThrust * 0.025 : recoil * 0.018),
+      baseZ + (isUnarmed ? -punchThrust * 0.16 : recoil * 0.075),
+    )
     pivot.rotation.set(
-      recoil * 0.16 + reloadTilt - sprintLerpRef.current * 0.14,
+      (isUnarmed ? -punchThrust * 0.12 : recoil * 0.16) + reloadTilt - sprintLerpRef.current * 0.14,
       0.38 * reloadCurve + sprintLerpRef.current * 0.24,
       -0.28 * reloadCurve + sprintLerpRef.current * 0.12,
     )
+
+    if (isUnarmed && leftFistRef.current && rightFistRef.current) {
+      const rightActive = punchHandToggleRef.current === 0
+      const lThrust = rightActive ? 0 : punchThrust
+      const rThrust = rightActive ? punchThrust : 0
+      leftFistRef.current.position.set(-0.24 + lThrust * 0.09, -0.02 + lThrust * 0.03, -0.06 - lThrust * 0.26)
+      rightFistRef.current.position.set(0.06 - rThrust * 0.06, -0.01 + rThrust * 0.03, -0.1 - rThrust * 0.28)
+    }
 
     if (muzzleRef.current) {
       const flashVisible = msSinceShot < 68
@@ -434,35 +511,40 @@ export function WeaponViewmodel() {
     }
   })
 
-  if (!weapon || !alive || phase !== 'playing') return null
-  const spec = WEAPONS[weapon]
+  if (!alive || phase !== 'playing') return null
+  const spec = weapon ? WEAPONS[weapon] : null
+  const accentColor = spec ? spec.accentColor : '#fb7185'
   const muzzleZ = getMuzzleZ(weapon)
 
-  const fallbackMesh = (
+  const fallbackMesh = weapon ? (
     <>
-      {weapon === 'pistol' && <PistolMesh accent={spec.accentColor} />}
-      {weapon === 'revolver' && <RevolverMesh accent={spec.accentColor} />}
-      {weapon === 'smg' && <SmgMesh accent={spec.accentColor} />}
-      {weapon === 'rifle' && <RifleMesh accent={spec.accentColor} />}
-      {weapon === 'burst' && <BurstMesh accent={spec.accentColor} />}
-      {weapon === 'shotgun' && <ShotgunMesh accent={spec.accentColor} />}
-      {weapon === 'lmg' && <LmgMesh accent={spec.accentColor} />}
-      {weapon === 'sniper' && <SniperMesh accent={spec.accentColor} />}
+      {weapon === 'pistol' && <PistolMesh accent={accentColor} />}
+      {weapon === 'revolver' && <RevolverMesh accent={accentColor} />}
+      {weapon === 'smg' && <SmgMesh accent={accentColor} />}
+      {weapon === 'rifle' && <RifleMesh accent={accentColor} />}
+      {weapon === 'burst' && <BurstMesh accent={accentColor} />}
+      {weapon === 'shotgun' && <ShotgunMesh accent={accentColor} />}
+      {weapon === 'lmg' && <LmgMesh accent={accentColor} />}
+      {weapon === 'sniper' && <SniperMesh accent={accentColor} />}
     </>
-  )
+  ) : null
 
   return (
     <group ref={rootRef} visible={!isAdsZoom || weapon !== 'sniper'}>
       <pointLight position={[0.15, 0.25, -0.15]} intensity={1.8} distance={2.8} color="#e2e8f0" />
       <group ref={weaponPivotRef}>
-        <Suspense fallback={fallbackMesh}>
-          <ImportedWeaponModel weapon={weapon} accent={spec.accentColor} />
-        </Suspense>
+        {weapon ? (
+          <Suspense fallback={fallbackMesh}>
+            <ImportedWeaponModel weapon={weapon} accent={accentColor} />
+          </Suspense>
+        ) : (
+          <CyberFistsMesh leftFistRef={leftFistRef} rightFistRef={rightFistRef} accent={accentColor} />
+        )}
 
-        {/* Multi-plane plasma muzzle flash */}
+        {/* Multi-plane plasma muzzle / fist impact flash */}
         <mesh ref={muzzleRef} position={[0, 0.025, muzzleZ]} visible={false}>
           <octahedronGeometry args={[0.085, 0]} />
-          <meshBasicMaterial color={spec.accentColor} transparent opacity={0.94} />
+          <meshBasicMaterial color={accentColor} transparent opacity={0.94} />
         </mesh>
       </group>
     </group>

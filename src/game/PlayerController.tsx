@@ -9,7 +9,7 @@ import {
   type ArenaBox,
 } from '../../shared/arena.ts'
 import type { SkillSlot, WeaponId } from '../../shared/types.ts'
-import { WEAPONS } from '../../shared/weapons.ts'
+import { UNARMED_MELEE_SPEC, WEAPONS } from '../../shared/weapons.ts'
 import { multiplayerClient } from '../multiplayer/client.ts'
 import { selectMyPlayer, useGameStore } from '../store/useGameStore.ts'
 import { inputManager } from './inputManager.ts'
@@ -32,8 +32,10 @@ const _scratchEuler = new THREE.Euler(0, 0, 0, 'YXZ')
 const _scratchDir = new THREE.Vector3()
 const _scratchOffset = new THREE.Vector3()
 
-function weaponRecoilKick(weapon: WeaponId): number {
+function weaponRecoilKick(weapon: WeaponId | 'melee'): number {
   switch (weapon) {
+    case 'melee':
+      return 0.008
     case 'sniper':
       return 0.042
     case 'shotgun':
@@ -95,7 +97,12 @@ export function PlayerController() {
   const castSkill = useCallback(
     (slot: SkillSlot) => {
       const state = useGameStore.getState()
-      if (state.room?.phase !== 'playing' || state.room.roundState !== 'COMBAT_ACTIVE') return
+      if (
+        state.room?.phase !== 'playing' ||
+        (state.room.roundState !== 'COMBAT_ACTIVE' && state.room.roundState !== 'FREE_PLAY')
+      ) {
+        return
+      }
       if (state.mathModalOpen || state.pauseOpen) return
       const me = selectMyPlayer(state)
       if (!me || !me.alive) return
@@ -119,23 +126,25 @@ export function PlayerController() {
 
   const attemptShoot = useCallback(() => {
     const state = useGameStore.getState()
-    if (state.room?.phase !== 'playing' || state.room.roundState !== 'COMBAT_ACTIVE') return
+    if (
+      state.room?.phase !== 'playing' ||
+      (state.room.roundState !== 'COMBAT_ACTIVE' && state.room.roundState !== 'FREE_PLAY')
+    ) {
+      return
+    }
     if (state.mathModalOpen || state.pauseOpen) return
     const me = selectMyPlayer(state)
     if (!me || !me.alive) return
 
-    if (!me.weapon) {
-      state.setStatusToast('อาวุธถูกยึด (UNARMED) — รอจบ Combat Round เพื่อทำโจทย์รับอาวุธใหม่!')
-      return
-    }
-
-    const spec = WEAPONS[me.weapon]
+    const isMelee = me.weapon === null
+    const weaponOrMelee: WeaponId | 'melee' = me.weapon ?? 'melee'
+    const spec = me.weapon ? WEAPONS[me.weapon] : null
     const now = performance.now()
     const serverNow = Date.now() + state.clockOffsetMs
-    if (me.reloadingUntil && serverNow < me.reloadingUntil) return
+    if (!isMelee && me.reloadingUntil && serverNow < me.reloadingUntil) return
 
     // Strictly prevent firing when magazine is empty -> trigger clear reload feedback instead
-    if (me.ammo <= 0) {
+    if (!isMelee && me.ammo <= 0) {
       if (now - lastShotClientAtRef.current >= 320) {
         lastShotClientAtRef.current = now
         multiplayerClient.reload()
@@ -144,8 +153,9 @@ export function PlayerController() {
       return
     }
 
+    const baseFireRate = spec ? spec.fireRateMs : UNARMED_MELEE_SPEC.fireRateMs
     const overdriveActive = Boolean(me.overdriveUntil && serverNow < me.overdriveUntil)
-    const effectiveFireRate = overdriveActive ? Math.floor(spec.fireRateMs * 0.65) : spec.fireRateMs
+    const effectiveFireRate = overdriveActive ? Math.floor(baseFireRate * 0.65) : baseFireRate
     if (now - lastShotClientAtRef.current < effectiveFireRate) return
     lastShotClientAtRef.current = now
 
@@ -182,19 +192,21 @@ export function PlayerController() {
     }
 
     const endpoints = []
-    const localPellets = spec.id === 'shotgun' ? spec.pellets : 1
+    const localPellets = spec && spec.id === 'shotgun' ? spec.pellets : 1
+    const maxRange = spec ? spec.range : UNARMED_MELEE_SPEC.range
+    const spreadRad = spec ? spec.spreadRad : 0
     for (let p = 0; p < localPellets; p++) {
       let rayDir = dir
-      if (localPellets > 1 && spec.spreadRad > 0) {
+      if (localPellets > 1 && spreadRad > 0) {
         const angle = (p / localPellets) * Math.PI * 2 + 0.35
-        const mag = 0.55 * spec.spreadRad
+        const mag = 0.55 * spreadRad
         const rx = dir.x + Math.cos(angle) * mag
         const ry = dir.y + Math.sin(angle) * mag * 0.75
         const rz = dir.z + Math.sin(angle + 1.2) * mag
         const l = Math.hypot(rx, ry, rz) || 1
         rayDir = { x: rx / l, y: ry / l, z: rz / l }
       }
-      let hitDist = raycastArenaObstacles(origin, rayDir, spec.range, barriers)
+      let hitDist = raycastArenaObstacles(origin, rayDir, maxRange, barriers)
       if (state.room) {
         for (const candidate of state.room.players) {
           if (candidate.id === me.id || candidate.team === me.team || !candidate.alive || !candidate.connected) continue
@@ -222,10 +234,10 @@ export function PlayerController() {
       })
     }
 
-    // Offset visual muzzle origin toward weapon barrel (zero GC allocation via scratch vectors)
+    // Offset visual muzzle/fist origin toward barrel or punching fist
     _scratchEuler.set(pitchRef.current, yawRef.current, 0, 'YXZ')
     _scratchOffset
-      .set(state.isAdsZoom ? 0.0 : 0.16, state.isAdsZoom ? -0.07 : -0.13, -0.48)
+      .set(state.isAdsZoom ? 0.0 : 0.16, state.isAdsZoom ? -0.07 : -0.13, isMelee ? -0.35 : -0.48)
       .applyEuler(_scratchEuler)
 
     const muzzleOrigin = {
@@ -236,11 +248,11 @@ export function PlayerController() {
 
     // Aim Mode provides better recoil stability (35% lower recoil kick)
     const recoilMult = state.isAdsZoom ? 0.65 : 1.0
-    recoilPitchRef.current = Math.min(0.12, recoilPitchRef.current + weaponRecoilKick(me.weapon) * recoilMult)
+    recoilPitchRef.current = Math.min(0.12, recoilPitchRef.current + weaponRecoilKick(weaponOrMelee) * recoilMult)
     state.triggerLocalShotVisual()
-    state.addLocalTracer(me.team, me.weapon, muzzleOrigin, endpoints)
+    state.addLocalTracer(me.team, weaponOrMelee, muzzleOrigin, endpoints)
     state.markTutorialStep('shot')
-    soundEngine.playWeaponFire(me.weapon, 1)
+    soundEngine.playWeaponFire(weaponOrMelee, 1)
     multiplayerClient.shoot(origin, dir)
   }, [computeAimDirection])
 
@@ -254,7 +266,7 @@ export function PlayerController() {
         return (
           s.screen === 'arena' &&
           s.room?.phase === 'playing' &&
-          s.room.roundState === 'COMBAT_ACTIVE' &&
+          (s.room.roundState === 'COMBAT_ACTIVE' || s.room.roundState === 'FREE_PLAY') &&
           !s.mathModalOpen &&
           !s.pauseOpen
         )
@@ -279,7 +291,7 @@ export function PlayerController() {
           !wasExpectedUnlock &&
           s.screen === 'arena' &&
           s.room?.phase === 'playing' &&
-          s.room.roundState === 'COMBAT_ACTIVE' &&
+          (s.room.roundState === 'COMBAT_ACTIVE' || s.room.roundState === 'FREE_PLAY') &&
           !s.mathModalOpen
         ) {
           s.setPauseOpen(true)
@@ -297,7 +309,7 @@ export function PlayerController() {
         const s = useGameStore.getState()
         const me = selectMyPlayer(s)
         if (
-          s.room?.roundState === 'COMBAT_ACTIVE' &&
+          (s.room?.roundState === 'COMBAT_ACTIVE' || s.room?.roundState === 'FREE_PLAY') &&
           me?.weapon &&
           me.ammo < WEAPONS[me.weapon].magSize &&
           !me.reloadingUntil
@@ -421,7 +433,7 @@ export function PlayerController() {
     const { dx: mouseDx, dy: mouseDy } = inputManager.consumeMouseDelta()
     const combatRoundActive =
       state.room.phase === 'playing' &&
-      state.room.roundState === 'COMBAT_ACTIVE' &&
+      (state.room.roundState === 'COMBAT_ACTIVE' || state.room.roundState === 'FREE_PLAY') &&
       !state.mathModalOpen &&
       !state.pauseOpen
 

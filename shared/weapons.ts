@@ -167,34 +167,72 @@ export const WEAPON_IDS: WeaponId[] = [
 ]
 
 /**
- * Authoritative Math Challenge Weapon Reward Pool (Section 3 specification):
- * Pistol, Rifle, Shotgun, Sniper.
+ * Unarmed Cyber Fist Melee Spec (used when player.weapon === null after weapon confiscation).
+ * Allows unarmed players to punch at close range (3.4m) with left-click!
  */
-export const REWARD_WEAPON_POOL: WeaponId[] = ['pistol', 'rifle', 'shotgun', 'sniper']
+export const UNARMED_MELEE_SPEC = {
+  name: 'Cyber Fists',
+  codename: 'UNARMED MELEE',
+  category: 'CLOSE-RANGE BRAWLER',
+  damage: 35,
+  headshotDamage: 55,
+  fireRateMs: 420,
+  range: 3.4,
+  accentColor: '#fb7185',
+  badge: 'MELEE PUNCH',
+  tagline: 'หมัดไซเบอร์ระยะประชิด (3.4m) คลิกซ้ายต่อยศัตรูได้ทันทีแม้มือเปล่า!',
+} as const
 
-const REWARD_DIFFICULTY_WEIGHTS: Record<Difficulty, Record<'pistol' | 'rifle' | 'shotgun' | 'sniper', number>> = {
+/**
+ * Authoritative Math Challenge Weapon Reward Pool — all 8 diverse sci-fi weapons:
+ * Pistol, Revolver, SMG, Rifle, Burst, Shotgun, LMG, Sniper.
+ */
+export const REWARD_WEAPON_POOL: WeaponId[] = [
+  'pistol',
+  'revolver',
+  'smg',
+  'rifle',
+  'burst',
+  'shotgun',
+  'lmg',
+  'sniper',
+]
+
+const REWARD_DIFFICULTY_WEIGHTS: Record<Difficulty, Record<WeaponId, number>> = {
   easy: {
-    pistol: 35,
-    rifle: 30,
-    shotgun: 20,
-    sniper: 15,
+    pistol: 20,
+    smg: 20,
+    rifle: 18,
+    shotgun: 12,
+    burst: 10,
+    revolver: 8,
+    lmg: 6,
+    sniper: 6,
   },
   medium: {
-    pistol: 20,
-    rifle: 32,
-    shotgun: 26,
-    sniper: 22,
+    pistol: 10,
+    smg: 14,
+    rifle: 18,
+    burst: 15,
+    shotgun: 14,
+    revolver: 12,
+    lmg: 9,
+    sniper: 8,
   },
   hard: {
-    pistol: 12,
-    rifle: 28,
-    shotgun: 26,
-    sniper: 34,
+    pistol: 5,
+    smg: 10,
+    rifle: 15,
+    burst: 14,
+    shotgun: 13,
+    revolver: 14,
+    lmg: 14,
+    sniper: 15,
   },
 }
 
 /**
- * Authoritatively rolls one of the 4 core weapons (Pistol, Rifle, Shotgun, Sniper).
+ * Authoritatively rolls one of the 8 distinct sci-fi weapons from REWARD_WEAPON_POOL.
  * Strongly reduces repeat chance so every math solve feels fresh & exciting.
  */
 export function rollRandomWeapon(
@@ -204,16 +242,12 @@ export function rollRandomWeapon(
 ): WeaponId {
   const weights = { ...REWARD_DIFFICULTY_WEIGHTS[difficulty] }
   if (previousWeapon && previousWeapon in weights) {
-    const key = previousWeapon as keyof typeof weights
-    weights[key] = Math.max(4, Math.floor(weights[key] * 0.25))
+    weights[previousWeapon] = Math.max(2, Math.floor(weights[previousWeapon] * 0.2))
   }
-  const total = REWARD_WEAPON_POOL.reduce(
-    (acc, id) => acc + weights[id as keyof typeof weights],
-    0,
-  )
+  const total = REWARD_WEAPON_POOL.reduce((acc, id) => acc + weights[id], 0)
   let roll = rng() * total
   for (const id of REWARD_WEAPON_POOL) {
-    roll -= weights[id as keyof typeof weights]
+    roll -= weights[id]
     if (roll <= 0) return id
   }
   return 'rifle'

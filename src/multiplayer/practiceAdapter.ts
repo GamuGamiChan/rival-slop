@@ -189,6 +189,18 @@ export class PracticeAdapter {
         break
       }
 
+      case 'START_FREE_PLAY': {
+        const res = this.manager.startFreePlay(roomCode, playerId)
+        if (res.ok) this.onMessage?.({ type: 'ROOM_STATE', room: res.snapshot })
+        break
+      }
+
+      case 'SELECT_FREE_WEAPON': {
+        const res = this.manager.selectFreeWeapon(roomCode, playerId, msg.weapon ?? null)
+        if (res.ok) this.onMessage?.({ type: 'ROOM_STATE', room: res.snapshot })
+        break
+      }
+
       case 'USE_SKILL': {
         const res = this.manager.useSkill(roomCode, playerId, msg.slot, msg.origin, msg.direction)
         if (!res.ok) {
@@ -217,13 +229,19 @@ export class PracticeAdapter {
     }
   }
 
-  private checkPracticeTargetHits(origin: Vec3, rawDir: Vec3, weaponId: keyof typeof WEAPONS): void {
+  private checkPracticeTargetHits(
+    origin: Vec3,
+    rawDir: Vec3,
+    weaponId: keyof typeof WEAPONS | 'melee',
+  ): void {
     if (!this.manager || !this.roomCode || !this.playerId) return
     const room = this.manager.getRoom(this.roomCode)
     const me = room?.players.get(this.playerId)
     if (!room || !me) return
 
-    const spec = WEAPONS[weaponId]
+    const isMelee = weaponId === 'melee'
+    const spec = isMelee ? null : WEAPONS[weaponId]
+    const maxRange = spec ? spec.range : 3.4
     const len = Math.hypot(rawDir.x, rawDir.y, rawDir.z) || 1
     const dir = { x: rawDir.x / len, y: rawDir.y / len, z: rawDir.z / len }
     const now = Date.now()
@@ -242,7 +260,7 @@ export class PracticeAdapter {
         accent: e.ownerTeam,
       }))
 
-    const wallDist = raycastArenaObstacles(origin, dir, spec.range, barriers)
+    const wallDist = raycastArenaObstacles(origin, dir, maxRange, barriers)
     let closest: { target: PracticeTarget; distance: number; headshot: boolean } | null = null
 
     for (const target of this.targets) {
@@ -254,8 +272,15 @@ export class PracticeAdapter {
     }
 
     if (!closest) return
-    const pellets = spec.id === 'shotgun' ? 4 : spec.id === 'burst' ? 3 : 1
-    const dmg = (closest.headshot ? spec.headshotDamage : spec.damage) * pellets
+    const pellets = !spec ? 1 : spec.id === 'shotgun' ? 4 : spec.id === 'burst' ? 3 : 1
+    const baseDmg = !spec
+      ? closest.headshot
+        ? 55
+        : 35
+      : closest.headshot
+        ? spec.headshotDamage
+        : spec.damage
+    const dmg = baseDmg * pellets
     closest.target.hp = Math.max(0, closest.target.hp - dmg)
     const killed = closest.target.hp <= 0
 

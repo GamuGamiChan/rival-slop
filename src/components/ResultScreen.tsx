@@ -173,6 +173,15 @@ export function ResultScreen() {
 
         {/* Actions */}
         <footer className="flex flex-wrap items-center justify-center gap-4">
+          <button
+            id="btn-result-free-play"
+            type="button"
+            onClick={() => multiplayerClient.startFreePlay()}
+            className="px-7 py-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-display font-black text-sm tracking-wider uppercase hud-cut-sm flex items-center gap-2 cursor-pointer shadow-[0_0_24px_rgba(16,185,129,0.4)]"
+          >
+            <Target className="w-4 h-4" /> FREE PLAY • เลือกปืนยิงเล่นฟรีในสนาม!
+          </button>
+
           {me?.isHost ? (
             <button
               id="btn-result-rematch"
@@ -184,7 +193,7 @@ export function ResultScreen() {
             </button>
           ) : (
             <div className="px-5 py-3 bg-slate-900/90 border border-slate-700 font-thai text-sm text-slate-300">
-              รอหัวหน้าห้องกด Play Again เพื่อเริ่มรอบใหม่...
+              กด Free Play เพื่อเลือกปืนยิงเล่นต่อ หรือรอหัวหน้าห้องกด Play Again...
             </div>
           )}
 

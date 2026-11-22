@@ -268,16 +268,20 @@ describe('Authoritative RoomManager — Round-Synchronized Gameplay, Weapon Pena
     if (!afterTimeout.ok) expect(afterTimeout.code).toBe('DUPLICATE_ANSWER')
   })
 
-  it('rolls strictly from the 4 official Weapon Pool types (Pistol, Rifle, Shotgun, Sniper)', () => {
+  it('rolls all 8 diverse sci-fi weapons from REWARD_WEAPON_POOL (Pistol, Revolver, SMG, Rifle, Burst, Shotgun, LMG, Sniper)', () => {
     const seen = new Set<string>()
-    for (let i = 0; i < 300; i++) {
+    for (let i = 0; i < 400; i++) {
       const w = rollRandomWeapon('medium', null)
       expect(REWARD_WEAPON_POOL).toContain(w)
       seen.add(w)
     }
-    expect(seen.size).toBe(4)
+    expect(seen.size).toBe(8)
     expect(WEAPONS.sniper.headshotDamage).toBeGreaterThanOrEqual(100)
+    expect(WEAPONS.revolver.headshotDamage).toBeGreaterThanOrEqual(100)
     expect(WEAPONS.shotgun.pellets).toBe(6)
+    expect(WEAPONS.burst.pellets).toBe(3)
+    expect(WEAPONS.lmg.magSize).toBe(55)
+    expect(WEAPONS.smg.fireRateMs).toBeLessThan(WEAPONS.rifle.fireRateMs)
     expect(WEAPONS.rifle.automatic).toBe(true)
     expect(WEAPONS.pistol.reloadMs).toBeLessThan(WEAPONS.sniper.reloadMs)
   })
@@ -409,20 +413,40 @@ describe('Authoritative RoomManager — Round-Synchronized Gameplay, Weapon Pena
       now += ms
     })
 
-    // p2 is now unarmed -> shooting is rejected with NO_WEAPON
-    const unarmedShoot = mgr.shoot(
+    // p2 is now unarmed -> attacking from far away (16m) uses Cyber Fists (range 3.4m) and misses
+    const farPunch = mgr.shoot(
       p1.roomCode,
       p2.playerId,
-      { x: 0, y: 1.56, z: 10 },
+      { x: -11, y: 1.56, z: 10 },
       { x: 0, y: 0, z: -1 },
     )
-    expect(unarmedShoot.ok).toBe(false)
-    if (!unarmedShoot.ok) expect(unarmedShoot.code).toBe('NO_WEAPON')
+    expect(farPunch.ok).toBe(true)
+    if (farPunch.ok) {
+      expect(farPunch.outcome.shot.weapon).toBe('melee')
+      expect(farPunch.outcome.hits).toHaveLength(0)
+    }
 
-    // Position both players in open West lane (clear line of sight at x = -11)
+    // Move unarmed p2 within close melee range (2.2m <= 3.4m) of p1 and punch -> deals 35 melee damage!
     const shooter = room.players.get(p1.playerId)!
     const victim = room.players.get(p2.playerId)!
     shooter.position = { x: -11, y: 0, z: -6 }
+    victim.position = { x: -11, y: 0, z: -3.8 }
+    now += 500
+    const closePunch = mgr.shoot(
+      p1.roomCode,
+      p2.playerId,
+      { x: -11, y: 1.2, z: -3.8 },
+      { x: 0, y: 0, z: -1 },
+    )
+    expect(closePunch.ok).toBe(true)
+    if (closePunch.ok) {
+      expect(closePunch.outcome.shot.weapon).toBe('melee')
+      expect(closePunch.outcome.hits).toHaveLength(1)
+      expect(closePunch.outcome.hits[0].confirm.damage).toBe(35)
+    }
+    expect(shooter.hp).toBe(65)
+
+    // Now move victim back to z = 6 for sniper headshot test
     victim.position = { x: -11, y: 0, z: 6 }
 
     // Headshot aim from shooter eye (y=1.56) straight to victim head (y=1.58)
@@ -509,6 +533,24 @@ describe('Authoritative RoomManager — Round-Synchronized Gameplay, Weapon Pena
     expect(room.summary?.winnerPlayer?.totalScore).toBe(10 * SCORING.MATH_CORRECT)
     const betaSummary = room.summary?.standings.find((s) => s.playerId === p2.playerId)
     expect(betaSummary?.totalScore).toBe(10 * SCORING.MATH_WRONG)
+
+    // Cannot freely pick weapon before entering FREE_PLAY
+    expect(mgr.selectFreeWeapon(p1.roomCode, p1.playerId, 'lmg').ok).toBe(false)
+
+    // Enter Post-10-Rounds Free Play -> players can freely pick any of the 8 weapons or Cyber Fists!
+    const fp = mgr.startFreePlay(p1.roomCode, p1.playerId)
+    expect(fp.ok).toBe(true)
+    expect(room.phase).toBe('playing')
+    expect(room.roundState).toBe('FREE_PLAY')
+
+    const pickLmg = mgr.selectFreeWeapon(p1.roomCode, p1.playerId, 'lmg')
+    expect(pickLmg.ok).toBe(true)
+    expect(room.players.get(p1.playerId)!.weapon).toBe('lmg')
+    expect(room.players.get(p1.playerId)!.ammo).toBe(WEAPONS.lmg.magSize)
+
+    const pickFists = mgr.selectFreeWeapon(p1.roomCode, p2.playerId, null)
+    expect(pickFists.ok).toBe(true)
+    expect(room.players.get(p2.playerId)!.weapon).toBeNull()
   })
 
   it('allows walking smoothly up the stepped central ramp onto the 2.0m center deck without jumping', () => {

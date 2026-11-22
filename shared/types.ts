@@ -153,7 +153,7 @@ export interface KillFeedItem {
   victimId: string
   victimName: string
   victimTeam: Team
-  weapon: WeaponId | 'skill'
+  weapon: WeaponId | 'skill' | 'melee'
   skillLabel?: string
   headshot: boolean
   pointsAwarded: number
@@ -164,7 +164,7 @@ export interface ShotEvent {
   id: string
   shooterId: string
   shooterTeam: Team
-  weapon: WeaponId
+  weapon: WeaponId | 'melee'
   origin: Vec3
   endpoints: Vec3[]
   hitPlayerId?: string
@@ -205,6 +205,7 @@ export type RoundState =
   | 'ANSWER_FEEDBACK'
   | 'WEAPON_REVEAL'
   | 'NEXT_ROUND'
+  | 'FREE_PLAY'
 
 export interface MathHistoryEntry {
   roundNumber: number
@@ -269,7 +270,7 @@ export interface HitConfirmPayload {
 export interface DamageTakenPayload {
   attackerId: string
   attackerName: string
-  weapon: WeaponId | 'skill'
+  weapon: WeaponId | 'skill' | 'melee'
   damage: number
   headshot: boolean
   remainingHp: number
@@ -288,6 +289,8 @@ export type ClientMessage =
   | { type: 'SWITCH_TEAM'; team: Team }
   | { type: 'SELECT_AGENT'; agent: AgentId }
   | { type: 'START_MATCH' }
+  | { type: 'START_FREE_PLAY' }
+  | { type: 'SELECT_FREE_WEAPON'; weapon: WeaponId | null }
   | { type: 'RETURN_TO_LOBBY' }
   | { type: 'PLAYER_MOVE'; position: Vec3; yaw: number; pitch: number }
   | { type: 'REQUEST_QUESTION'; preferredDifficulty?: Difficulty }
@@ -361,7 +364,7 @@ export const MATCH_CONFIG = {
   ROUND_START_MS: 1200,
   COMBAT_ROUND_MS: 22_000,
   ROUND_END_MS: 1500,
-  MATH_CHALLENGE_MS: 20_000,
+  MATH_CHALLENGE_MS: 60_000,
   ANSWER_FEEDBACK_MS: 2200,
   WEAPON_REVEAL_MS: 2600,
   NEXT_ROUND_MS: 1000,

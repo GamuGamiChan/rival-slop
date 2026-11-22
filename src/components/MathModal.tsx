@@ -226,11 +226,11 @@ function WeaponPenaltyStage({
           </div>
           <div className="font-thai text-sm font-bold text-white">
             {lostSpec
-              ? `ถูกยึดอาวุธ: ${lostSpec.name} → เข้าสู่สถานะ UNARMED (มือเปล่า)`
-              : 'สถานะ: UNARMED (ไม่มีอาวุธติดตัวในรอบถัดไป)'}
+              ? `ถูกยึดอาวุธ: ${lostSpec.name} → เข้าสู่สถานะหมัดมือเปล่า (CYBER FISTS)`
+              : 'สถานะ: หมัดมือเปล่า (CYBER FISTS — ไม่มีปืนในรอบถัดไป)'}
           </div>
           <div className="font-thai text-[11px] text-rose-300/90">
-            ต้องรอจบรอบต่อสู้ถัดไปและตอบคำถามให้ถูกต้องเพื่อรับอาวุธใหม่
+            คลิกซ้ายใช้หมัดต่อยระยะประชิด (3.4m / DMG 35) ได้ และรอจบรอบเพื่อตอบคำถามชิงปืนใหม่
           </div>
         </div>
 
@@ -516,10 +516,10 @@ export function MathModal() {
             {phase === 'QUESTION_ACTIVE' && (
               <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-slate-950/85 border border-slate-800 text-[11px]">
                 <span className="font-thai text-emerald-300 font-semibold">
-                  ✓ ตอบถูก: สุ่มปืนใหม่ (Pistol / Rifle / Shotgun / Sniper) +100 PTS
+                  ✓ ตอบถูก: สุ่มปืนไซไฟ 1 ใน 8 กระบอก +100 PTS (+1 ULT)
                 </span>
                 <span className="font-thai text-rose-400 font-bold flex items-center gap-1">
-                  <AlertTriangle className="w-3.5 h-3.5" /> ✕ ตอบผิด / หมดเวลา: ยึดอาวุธที่ถืออยู่ทันที &amp; -300 PTS
+                  <AlertTriangle className="w-3.5 h-3.5" /> ✕ ตอบผิด / หมดเวลา: ยึดปืน (เหลือหมัดมือเปล่า) &amp; -300 PTS
                 </span>
                 <span className="font-mono text-cyan-300">กดปุ่ม 1–4 ตอบด่วน</span>
               </div>

@@ -3,15 +3,15 @@ import { useGameStore } from '../store/useGameStore.ts'
 
 const CONTROL_BINDINGS: Array<{ key: string; action: string; detail: string }> = [
   { key: 'W A S D', action: 'Move', detail: 'เดินหน้า / ซ้าย / ถอยหลัง / ขวา' },
-  { key: 'Mouse', action: 'Look / Aim', detail: 'หันกล้องและเล็งเป้า (คลิกสนามเพื่อล็อกเมาส์)' },
-  { key: 'Left Click', action: 'Shoot', detail: 'ยิงปืน (กดค้างได้เมื่อมีกระสุน)' },
+  { key: 'Tab / Mouse', action: 'Mouse Look Toggle', detail: 'กด Tab เปิดหันกล้องด้วยเมาส์ (กด Tab อีกครั้งเพื่อออก)' },
+  { key: 'Left Click', action: 'Shoot / Punch', detail: 'ยิงปืน หรือต่อยด้วยหมัดไซเบอร์เมื่อไม่มีปืน' },
   { key: 'Shift (Hold)', action: 'Sprint', detail: 'กดค้างเพื่อวิ่งเร็วขณะเดินเท่านั้น' },
   { key: 'Ctrl (Hold)', action: 'Aim Mode', detail: 'กดค้าง (ซ้าย/ขวา) ซูมเป้าและลดแรงดีด' },
   { key: 'R', action: 'Reload', detail: 'รีโหลดกระสุนเมื่อกระสุนไม่เต็ม' },
-  { key: '1 - 4', action: 'Math Answer', detail: 'เลือกคำตอบโจทย์คณิตเมื่อจบแต่ละ Combat Round' },
+  { key: '1 - 4', action: 'Math Answer (60s)', detail: 'เลือกคำตอบโจทย์คณิตเมื่อจบแต่ละ Combat Round (เวลา 1 นาที)' },
   { key: 'Space', action: 'Jump', detail: 'กระโดด / ใช้ Jump Pad' },
   { key: 'Q / C / X', action: 'Agent Skills', detail: 'สกิล Tactical / Utility / Ultimate (4 แต้ม)' },
-  { key: 'Tab', action: 'Scoreboard', detail: 'กดค้างดูตารางคะแนนสด' },
+  { key: 'Tab (Hold)', action: 'Scoreboard', detail: 'กดค้างดูตารางคะแนนสด + สลับล็อกเมาส์' },
   { key: 'Esc', action: 'Pause / Unlock', detail: 'ปลดล็อกเมาส์และเปิดเมนูหยุดเกม' },
   { key: 'H', action: 'Controls HUD', detail: 'เปิด/ปิดตารางปุ่มควบคุมมุมจอขณะเล่น' },
 ]

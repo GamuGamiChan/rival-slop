@@ -180,10 +180,10 @@ def run_e2e():
         page1.wait_for_selector("#weapon-roulette-stage", timeout=8000)
         page1.wait_for_selector("#math-awarded-weapon-name", timeout=8000)
         awarded_weapon = page1.locator("#math-awarded-weapon-name").get_attribute("data-awarded-weapon")
-        assert awarded_weapon in ("pistol", "rifle", "shotgun", "sniper"), f"Invalid pool weapon: {awarded_weapon}"
+        assert awarded_weapon in ("pistol", "revolver", "smg", "rifle", "burst", "shotgun", "lmg", "sniper"), f"Invalid pool weapon: {awarded_weapon}"
         print(f"      -> P1 awarded {awarded_weapon.upper()} (+100 PTS) | P2 weapon confiscated (-300 PTS)!", flush=True)
 
-        print("[8/9] Waiting for ROUND 2/10 COMBAT_ACTIVE -> Verifying P1 Armed (+100) & P2 Unarmed (-300)...", flush=True)
+        print("[8/9] Waiting for ROUND 2/10 COMBAT_ACTIVE -> Verifying P1 Armed (+100) & P2 Unarmed with Cyber Fists (-300)...", flush=True)
         page1.locator("#math-terminal-modal").wait_for(state="detached", timeout=12000)
         page2.locator("#math-terminal-modal").wait_for(state="detached", timeout=12000)
 
@@ -191,10 +191,13 @@ def run_e2e():
         assert page1.inner_text("#hud-my-score").strip() == "100"
         assert page2.inner_text("#hud-my-score").strip() == "-300"
         assert page2.inner_text("#hud-weapon-name").strip() == "NO WEAPON EQUIPPED"
+        assert "FISTS" in page2.inner_text("#hud-ammo-value").strip()
         assert page2.locator("#hud-unarmed-notice").is_visible()
+        # P2 punches with Cyber Fists in Round 2
+        page2.mouse.click(512, 320)
         p1_weapon_hud = page1.inner_text("#hud-weapon-name").strip()
         assert p1_weapon_hud != "NO WEAPON EQUIPPED"
-        print(f"      -> Round 2/10 active! P1 score=100 ({p1_weapon_hud}), P2 score=-300 (NO WEAPON EQUIPPED)!", flush=True)
+        print(f"      -> Round 2/10 active! P1 score=100 ({p1_weapon_hud}), P2 score=-300 (NO WEAPON EQUIPPED / ∞ FISTS punch verified)!", flush=True)
 
         print("[9/9] Testing REAL Player 2 Disconnect + Player 1 Browser Reload & Reconnect...", flush=True)
         ctx2.close()

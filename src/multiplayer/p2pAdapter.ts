@@ -414,6 +414,22 @@ export class P2PAdapter {
         break
       }
 
+      case 'START_FREE_PLAY': {
+        if (!senderId) return
+        const res = this.manager.startFreePlay(roomCode, senderId)
+        if (!res.ok) reply({ type: 'ERROR', code: res.code, message: res.message })
+        else this.broadcastToAll({ type: 'ROOM_STATE', room: res.snapshot })
+        break
+      }
+
+      case 'SELECT_FREE_WEAPON': {
+        if (!senderId) return
+        const res = this.manager.selectFreeWeapon(roomCode, senderId, msg.weapon ?? null)
+        if (!res.ok) reply({ type: 'ERROR', code: res.code, message: res.message })
+        else this.broadcastToAll({ type: 'ROOM_STATE', room: res.snapshot })
+        break
+      }
+
       case 'RETURN_TO_LOBBY': {
         if (!senderId) return
         const res = this.manager.returnToLobby(roomCode, senderId)

@@ -168,8 +168,8 @@ export function RivalAvatar({ player }: RivalAvatarProps) {
         <meshStandardMaterial color={agentAccent} emissive={agentAccent} emissiveIntensity={3.2} />
       </mesh>
 
-      {/* Held Sci-Fi Weapon (Audited Kenney Blaster Kit 3D GLB) */}
-      {player.weapon && (
+      {/* Held Sci-Fi Weapon (Audited Kenney Blaster Kit 3D GLB) OR Cyber Fists when Unarmed */}
+      {player.weapon ? (
         <group position={[0.38, 1.02, -0.35]}>
           <Suspense
             fallback={
@@ -181,6 +181,18 @@ export function RivalAvatar({ player }: RivalAvatarProps) {
           >
             <ImportedWeaponModel weapon={player.weapon} accent={weaponColor} scaleMultiplier={1.08} />
           </Suspense>
+        </group>
+      ) : (
+        <group>
+          {/* Left & Right Glowing Cyber Gauntlets */}
+          <mesh position={[-0.42, 0.78, -0.22]}>
+            <boxGeometry args={[0.18, 0.16, 0.22]} />
+            <meshStandardMaterial color="#fb7185" emissive="#fb7185" emissiveIntensity={2.6} />
+          </mesh>
+          <mesh position={[0.42, 0.82, -0.28]}>
+            <boxGeometry args={[0.18, 0.16, 0.22]} />
+            <meshStandardMaterial color="#fb7185" emissive="#fb7185" emissiveIntensity={2.6} />
+          </mesh>
         </group>
       )}
 

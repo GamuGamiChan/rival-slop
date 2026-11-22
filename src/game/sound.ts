@@ -70,8 +70,13 @@ class SoundEngine {
     src.stop(now + durationSec)
   }
 
-  playWeaponFire(weapon: WeaponId, scale = 1): void {
+  playWeaponFire(weapon: WeaponId | 'melee', scale = 1): void {
     switch (weapon) {
+      case 'melee':
+        // Crisp futuristic cyber-fist swoosh + kinetic impact thud
+        this.playTone(260, 75, 0.13, 'triangle', 0.2 * scale)
+        this.playNoise(0.095, 680, 0.18 * scale)
+        break
       case 'pistol':
         this.playTone(920, 210, 0.09, 'sawtooth', 0.14 * scale)
         this.playNoise(0.055, 2200, 0.09 * scale)

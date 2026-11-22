@@ -71,11 +71,9 @@ with sync_playwright() as p:
     assert page.locator("#btn-hud-math-quick").count() == 0, "Manual random weapon button must NOT exist!"
     assert page.locator("#btn-hud-open-math").count() == 0, "Manual math roll button must NOT exist!"
     assert page.locator("#hud-round-state").get_attribute("data-round-state") == "COMBAT_ACTIVE"
-    page.wait_for_timeout(300)
-    page.screenshot(animations="disabled", path=f"{SHOT_DIR}/qa_03_practice_arena.png")
     print("      -> Practice Range loaded in COMBAT_ACTIVE with starter Pistol & zero manual roll buttons!", flush=True)
 
-    print("[QA 3/8] Verifying ZERO automatic camera rotation or drift when idle...", flush=True)
+    print("[QA 3/8] Verifying ZERO automatic camera rotation or drift when idle + Testing [TAB] Mouse Look Toggle (Tab ON -> move mouse rotates camera -> Tab OFF)...", flush=True)
     t0 = page.evaluate("window.__MATH_RIVALS_TELEMETRY__()")
     page.wait_for_timeout(400)
     t1 = page.evaluate("window.__MATH_RIVALS_TELEMETRY__()")
@@ -84,7 +82,26 @@ with sync_playwright() as p:
     assert abs(t1["x"] - t0["x"]) < 1e-4 and abs(t1["z"] - t0["z"]) < 1e-4, f"Idle position drifted! {t0} -> {t1}"
     assert page.locator("#hud-sprint-indicator").count() == 0
     assert page.locator("#hud-aim-indicator").count() == 0
-    print(f"      -> Idle camera & position strictly 0 drift ({t1['yaw']:.4f}, {t1['pitch']:.4f})!", flush=True)
+
+    # Press Tab once -> enters Mouse Look Mode (data-mouse-look-active="true")
+    assert page.locator("#hud-pointer-lock-status").get_attribute("data-mouse-look-active") == "false"
+    page.keyboard.press("Tab")
+    assert page.locator("#hud-pointer-lock-status").get_attribute("data-mouse-look-active") == "true"
+    # Move mouse while Tab Mouse Look is ON -> camera yaw rotates!
+    page.mouse.move(400, 360)
+    page.mouse.move(480, 360)
+    page.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
+    t_tab_on = page.evaluate("window.__MATH_RIVALS_TELEMETRY__()")
+    assert abs(t_tab_on["yaw"] - t1["yaw"]) > 0.02, f"Expected mouse move during Tab Mouse Look ON to rotate yaw: {t1['yaw']} -> {t_tab_on['yaw']}"
+
+    # Press Tab again -> exits Mouse Look Mode (data-mouse-look-active="false")
+    page.keyboard.press("Tab")
+    assert page.locator("#hud-pointer-lock-status").get_attribute("data-mouse-look-active") == "false"
+    page.mouse.move(540, 360)
+    page.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
+    t_tab_off = page.evaluate("window.__MATH_RIVALS_TELEMETRY__()")
+    assert abs(t_tab_off["yaw"] - t_tab_on["yaw"]) < 1e-6, "Camera must NOT rotate after second Tab exited Mouse Look Mode!"
+    print(f"      -> Idle 0 drift + [TAB] Mouse Look Toggle (ON rotated yaw {t1['yaw']:.3f}->{t_tab_on['yaw']:.3f}, OFF locked at {t_tab_off['yaw']:.3f}) verified!", flush=True)
 
     print("[QA 4/8] Testing Shift ONLY controls Sprint (never Aim, never auto-move/rotate, blur resets)...", flush=True)
     ts0 = page.evaluate("window.__MATH_RIVALS_TELEMETRY__()")
@@ -144,13 +161,19 @@ with sync_playwright() as p:
     page.keyboard.press("KeyE")
     page.wait_for_timeout(200)
     assert page.locator("#math-terminal-modal").count() == 0, "Manual RR/E must NOT open MathModal during COMBAT_ACTIVE!"
-    page.wait_for_timeout(1200)
+    page.wait_for_function(
+        f"() => Number(document.querySelector('#hud-ammo-value')?.textContent?.trim() || '0') === {ammo_before}",
+        polling=100,
+        timeout=5000,
+    )
     assert int(page.inner_text("#hud-ammo-value").strip()) == ammo_before
     print(f"      -> Shoot ({ammo_before}->{ammo_after}->{ammo_before}) & Manual Roll Prohibition verified!", flush=True)
 
-    print("[QA 7/8] Waiting for Round 1 Combat Round to end -> Auto Math Challenge -> Testing WRONG ANSWER (-300 PTS + Weapon Confiscated -> Unarmed)...", flush=True)
+    print("[QA 7/8] Waiting for Round 1 Combat Round to end -> Auto 60-Second Math Challenge -> Testing WRONG ANSWER (-300 PTS + Weapon Confiscated -> Cyber Fists)...", flush=True)
     page.wait_for_selector("#math-terminal-modal[data-math-phase='QUESTION_ACTIVE']", timeout=40000)
     assert page.locator("#btn-close-math").count() == 0, "Players must NOT be able to close/skip the Math Challenge!"
+    timer_val = int(page.inner_text("#math-challenge-timer").replace("s", "").strip())
+    assert 55 <= timer_val <= 60, f"Expected 1-minute (60s) Math Challenge timer, got {timer_val}s"
     q1 = page.inner_text("#math-question-prompt").strip()
     wrong_idx = (ANS[q1] + 1) % 4
     page.click(f"#btn-math-choice-{wrong_idx}")
@@ -159,14 +182,17 @@ with sync_playwright() as p:
     assert page.locator("#weapon-penalty-stage").get_attribute("data-weapon-confiscated") == "true"
     page.screenshot(animations="disabled", path=f"{SHOT_DIR}/qa_05_math_wrong_penalty.png")
 
-    # Wait for Round 2 COMBAT_ACTIVE -> Verify player is now UNARMED and score is -300!
+    # Wait for Round 2 COMBAT_ACTIVE -> Verify player is now UNARMED (Cyber Fists) and score is -300!
     page.locator("#math-terminal-modal").wait_for(state="detached", timeout=12000)
     assert page.inner_text("#hud-my-score").strip() == "-300"
     assert page.inner_text("#hud-weapon-name").strip() == "NO WEAPON EQUIPPED"
+    assert "FISTS" in page.inner_text("#hud-ammo-value").strip()
     assert page.locator("#hud-unarmed-notice").is_visible()
-    print("      -> Wrong answer confiscated weapon (NO WEAPON EQUIPPED) and deducted -300 PTS!", flush=True)
+    # Left-click while unarmed performs a Cyber Fist melee punch!
+    page.mouse.click(640, 360)
+    print("      -> Wrong answer confiscated weapon (NO WEAPON EQUIPPED / ∞ FISTS melee active) and deducted -300 PTS!", flush=True)
 
-    print("[QA 8/8] Waiting for Round 2 Combat Round to end -> Auto Math Challenge -> Testing CORRECT ANSWER (+100 PTS + 4-Weapon Pool Roll)...", flush=True)
+    print("[QA 8/8] Waiting for Round 2 Combat Round to end -> Auto Math Challenge -> Testing CORRECT ANSWER (+100 PTS + 8-Weapon Pool Roll)...", flush=True)
     page.wait_for_selector("#math-terminal-modal[data-math-phase='QUESTION_ACTIVE']", timeout=32000)
     q2 = page.inner_text("#math-question-prompt").strip()
     page.click(f"#btn-math-choice-{ANS[q2]}")
@@ -175,13 +201,13 @@ with sync_playwright() as p:
     page.wait_for_selector("#weapon-roulette-stage", timeout=6000)
     page.wait_for_selector("#math-awarded-weapon-name", timeout=6000)
     awarded = page.locator("#math-awarded-weapon-name").get_attribute("data-awarded-weapon")
-    assert awarded in ("pistol", "rifle", "shotgun", "sniper"), f"Unexpected weapon outside 4-weapon pool: {awarded}"
+    assert awarded in ("pistol", "revolver", "smg", "rifle", "burst", "shotgun", "lmg", "sniper"), f"Unexpected weapon: {awarded}"
     page.screenshot(animations="disabled", path=f"{SHOT_DIR}/qa_06_weapon_pool_reveal.png")
 
     page.locator("#math-terminal-modal").wait_for(state="detached", timeout=12000)
     assert page.inner_text("#hud-my-score").strip() == "-200"
     assert page.inner_text("#hud-weapon-name").strip() != "NO WEAPON EQUIPPED"
-    print(f"      -> Correct answer awarded +100 PTS (score -300 -> -200) and equipped {awarded.upper()} from 4-Weapon Pool!", flush=True)
+    print(f"      -> Correct answer awarded +100 PTS (score -300 -> -200) and equipped {awarded.upper()} from 8-Weapon Pool!", flush=True)
 
     browser.close()
 

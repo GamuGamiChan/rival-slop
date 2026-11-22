@@ -267,6 +267,26 @@ class MultiplayerClient {
     }
   }
 
+  startFreePlay(): void {
+    if (this.mode === 'practice') {
+      this.practice.sendMessage({ type: 'START_FREE_PLAY' })
+    } else if (this.mode === 'p2p') {
+      this.p2p.sendMessage({ type: 'START_FREE_PLAY' })
+    } else if (this.mode === 'ws') {
+      this.ws.sendRaw({ type: 'START_FREE_PLAY' })
+    }
+  }
+
+  selectFreeWeapon(weapon: import('../../shared/types.ts').WeaponId | null): void {
+    if (this.mode === 'practice') {
+      this.practice.sendMessage({ type: 'SELECT_FREE_WEAPON', weapon })
+    } else if (this.mode === 'p2p') {
+      this.p2p.sendMessage({ type: 'SELECT_FREE_WEAPON', weapon })
+    } else if (this.mode === 'ws') {
+      this.ws.sendRaw({ type: 'SELECT_FREE_WEAPON', weapon })
+    }
+  }
+
   returnToLobby(): void {
     if (this.mode === 'p2p') {
       this.p2p.sendMessage({ type: 'RETURN_TO_LOBBY' })

@@ -240,6 +240,28 @@ function handleClientMessage(session: ClientSession, msg: ClientMessage): void {
       break
     }
 
+    case 'START_FREE_PLAY': {
+      if (!session.roomCode || !session.playerId) return
+      const res = manager.startFreePlay(session.roomCode, session.playerId)
+      if (!res.ok) {
+        sendToSession(session, { type: 'ERROR', code: res.code, message: res.message })
+      } else {
+        broadcastToRoom(session.roomCode, { type: 'ROOM_STATE', room: res.snapshot })
+      }
+      break
+    }
+
+    case 'SELECT_FREE_WEAPON': {
+      if (!session.roomCode || !session.playerId) return
+      const res = manager.selectFreeWeapon(session.roomCode, session.playerId, msg.weapon ?? null)
+      if (!res.ok) {
+        sendToSession(session, { type: 'ERROR', code: res.code, message: res.message })
+      } else {
+        broadcastToRoom(session.roomCode, { type: 'ROOM_STATE', room: res.snapshot })
+      }
+      break
+    }
+
     case 'RETURN_TO_LOBBY': {
       if (!session.roomCode || !session.playerId) return
       const res = manager.returnToLobby(session.roomCode, session.playerId)

@@ -67,7 +67,7 @@ import {
   type WeaponId,
   type WorldEffect,
 } from './types.ts'
-import { rollRandomWeapon, WEAPONS } from './weapons.ts'
+import { rollRandomWeapon, UNARMED_MELEE_SPEC, WEAPON_IDS, WEAPONS } from './weapons.ts'
 
 export interface InternalPlayer extends PlayerPublicState {
   sessionToken: string
@@ -222,7 +222,7 @@ export class RoomManager {
     victim: InternalPlayer,
     damage: number,
     headshot: boolean,
-    sourceWeapon: WeaponId | 'skill',
+    sourceWeapon: WeaponId | 'skill' | 'melee',
     now: number,
     skillLabel?: string,
   ): CombatHitRecord {
@@ -682,7 +682,7 @@ export class RoomManager {
     if (room.hostId !== requesterId) {
       return { ok: false, code: 'FORBIDDEN', message: 'เฉพาะหัวหน้าห้องเท่านั้นที่รีเซ็ตกลับ Lobby ได้' }
     }
-    if (room.phase !== 'finished') {
+    if (room.phase !== 'finished' && room.roundState !== 'FREE_PLAY') {
       return { ok: false, code: 'INVALID_PHASE', message: 'สามารถกลับ Lobby ได้หลังจบเกมเท่านั้น' }
     }
 
@@ -724,6 +724,86 @@ export class RoomManager {
     return { ok: true, snapshot: this.buildSnapshot(room) }
   }
 
+  /**
+   * Starts Post-Match Free Play Mode after the 10-round match finishes (or in Practice Range).
+   * Players can freely pick any of the 8 weapons or Cyber Fists and battle without time limit!
+   */
+  startFreePlay(
+    roomCode: string,
+    requesterId: string,
+  ): { ok: true; snapshot: RoomSnapshot } | { ok: false; code: string; message: string } {
+    const room = this.rooms.get(roomCode)
+    if (!room) return { ok: false, code: 'ROOM_NOT_FOUND', message: 'ไม่พบห้อง' }
+    const requester = room.players.get(requesterId)
+    if (!requester) return { ok: false, code: 'PLAYER_NOT_FOUND', message: 'ไม่พบผู้เล่น' }
+
+    room.phase = 'playing'
+    room.roundState = 'FREE_PLAY'
+    room.roundPhaseEndsAt = null
+    room.matchEndsAt = null
+    room.activeRoundQuestionId = null
+    room.roundAnsweredPlayerIds.clear()
+    room.worldEffects = []
+
+    for (const p of room.players.values()) {
+      const spawn = getSpawnForTeam(p.team, room.spawnCounter[p.team]++)
+      p.position = spawn.position
+      p.yaw = spawn.yaw
+      p.pitch = 0
+      p.hp = MATCH_CONFIG.MAX_HP
+      p.maxHp = MATCH_CONFIG.MAX_HP
+      p.alive = true
+      p.respawnAt = null
+      if (!p.weapon) {
+        p.weapon = 'rifle'
+      }
+      p.ammo = WEAPONS[p.weapon].magSize
+      p.maxAmmo = WEAPONS[p.weapon].magSize
+      p.reloadingUntil = null
+    }
+
+    return { ok: true, snapshot: this.buildSnapshot(room) }
+  }
+
+  /**
+   * Allows a player to freely switch to any of the 8 weapons or Cyber Fists (null)
+   * when the room is in FREE_PLAY mode (post-10-rounds free arena).
+   */
+  selectFreeWeapon(
+    roomCode: string,
+    playerId: string,
+    weapon: WeaponId | null,
+  ): { ok: true; snapshot: RoomSnapshot } | { ok: false; code: string; message: string } {
+    const room = this.rooms.get(roomCode)
+    if (!room) return { ok: false, code: 'ROOM_NOT_FOUND', message: 'ไม่พบห้อง' }
+    if (room.roundState !== 'FREE_PLAY') {
+      return {
+        ok: false,
+        code: 'FREE_PLAY_ONLY',
+        message: 'เลือกอาวุธอิสระได้เฉพาะในโหมด Free Play หลังจบ 10 รอบเท่านั้น',
+      }
+    }
+    const player = room.players.get(playerId)
+    if (!player || !player.connected) {
+      return { ok: false, code: 'PLAYER_NOT_FOUND', message: 'ไม่พบผู้เล่น' }
+    }
+    if (weapon !== null && !WEAPON_IDS.includes(weapon)) {
+      return { ok: false, code: 'INVALID_WEAPON', message: 'ไม่พบอาวุธที่เลือก' }
+    }
+
+    player.weapon = weapon
+    player.reloadingUntil = null
+    if (weapon) {
+      player.ammo = WEAPONS[weapon].magSize
+      player.maxAmmo = WEAPONS[weapon].magSize
+    } else {
+      player.ammo = 0
+      player.maxAmmo = 0
+    }
+
+    return { ok: true, snapshot: this.buildSnapshot(room) }
+  }
+
   updatePlayerMove(
     roomCode: string,
     playerId: string,
@@ -744,7 +824,9 @@ export class RoomManager {
     // During countdown or non-combat round phases (ROUND_END / MATH_CHALLENGE / etc.), lock movement
     if (
       room.phase === 'countdown' ||
-      (room.roundState !== 'COMBAT_ACTIVE' && room.roundState !== 'ROUND_START')
+      (room.roundState !== 'COMBAT_ACTIVE' &&
+        room.roundState !== 'ROUND_START' &&
+        room.roundState !== 'FREE_PLAY')
     ) {
       player.yaw = yaw
       player.pitch = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, pitch))
@@ -982,7 +1064,11 @@ export class RoomManager {
     playerId: string,
   ): { ok: true; reloadingUntil: number } | { ok: false; code: string; message: string } {
     const room = this.rooms.get(roomCode)
-    if (!room || room.phase !== 'playing' || room.roundState !== 'COMBAT_ACTIVE') {
+    if (
+      !room ||
+      room.phase !== 'playing' ||
+      (room.roundState !== 'COMBAT_ACTIVE' && room.roundState !== 'FREE_PLAY')
+    ) {
       return { ok: false, code: 'MATCH_NOT_ACTIVE', message: 'รีโหลดได้เฉพาะในช่วง Combat Round เท่านั้น' }
     }
     const player = room.players.get(playerId)
@@ -1009,7 +1095,11 @@ export class RoomManager {
     rawDirection: Vec3,
   ): { ok: true; outcome: SkillOutcome } | { ok: false; code: string; message: string } {
     const room = this.rooms.get(roomCode)
-    if (!room || room.phase !== 'playing' || room.roundState !== 'COMBAT_ACTIVE') {
+    if (
+      !room ||
+      room.phase !== 'playing' ||
+      (room.roundState !== 'COMBAT_ACTIVE' && room.roundState !== 'FREE_PLAY')
+    ) {
       return { ok: false, code: 'MATCH_NOT_ACTIVE', message: 'ใช้สกิลได้เฉพาะในช่วง Combat Round เท่านั้น' }
     }
     const player = room.players.get(playerId)
@@ -1376,40 +1466,42 @@ export class RoomManager {
   ): { ok: true; outcome: ShootOutcome; scoreboardChanged: boolean } | { ok: false; code: string; message: string } {
     const room = this.rooms.get(roomCode)
     if (!room || room.phase !== 'playing' || room.roundState !== 'COMBAT_ACTIVE') {
-      return { ok: false, code: 'MATCH_NOT_ACTIVE', message: 'ยิงได้เฉพาะในช่วง Combat Round เท่านั้น' }
+      return { ok: false, code: 'MATCH_NOT_ACTIVE', message: 'โจมตีได้เฉพาะในช่วง Combat Round เท่านั้น' }
     }
     const shooter = room.players.get(shooterId)
     if (!shooter || !shooter.connected || !shooter.alive) {
-      return { ok: false, code: 'CANNOT_SHOOT', message: 'ผู้เล่นไม่สามารถยิงได้ในขณะนี้' }
-    }
-    if (!shooter.weapon) {
-      return { ok: false, code: 'NO_WEAPON', message: 'อาวุธถูกยึด (Unarmed)! ต้องรอจบ Combat Round แล้วตอบคำถามคณิตศาสตร์ให้ถูกเพื่อรับอาวุธใหม่' }
+      return { ok: false, code: 'CANNOT_SHOOT', message: 'ผู้เล่นไม่สามารถโจมตีได้ในขณะนี้' }
     }
     if (!isFiniteVec3(origin) || !isFiniteVec3(rawDirection)) {
-      return { ok: false, code: 'INVALID_VECTOR', message: 'ทิศทางการยิงไม่ถูกต้อง' }
+      return { ok: false, code: 'INVALID_VECTOR', message: 'ทิศทางการโจมตีไม่ถูกต้อง' }
     }
 
     const now = this.nowFn()
-    const spec = WEAPONS[shooter.weapon]
+    const isMelee = shooter.weapon === null
+    const weaponIdOrMelee: WeaponId | 'melee' = shooter.weapon ?? 'melee'
+    const spec = shooter.weapon ? WEAPONS[shooter.weapon] : null
     const overdriveActive = Boolean(shooter.overdriveUntil && now < shooter.overdriveUntil)
-    const effectiveFireRateMs = overdriveActive ? Math.floor(spec.fireRateMs * 0.65) : spec.fireRateMs
+    const baseFireRateMs = spec ? spec.fireRateMs : UNARMED_MELEE_SPEC.fireRateMs
+    const effectiveFireRateMs = overdriveActive ? Math.floor(baseFireRateMs * 0.65) : baseFireRateMs
     const damageMult = overdriveActive ? 1.25 : 1.0
 
-    if (shooter.reloadingUntil !== null) {
-      if (now >= shooter.reloadingUntil) {
-        shooter.ammo = spec.magSize
-        shooter.reloadingUntil = null
-      } else {
-        return { ok: false, code: 'RELOADING', message: 'กำลังรีโหลดอาวุธ' }
+    if (!isMelee && spec) {
+      if (shooter.reloadingUntil !== null) {
+        if (now >= shooter.reloadingUntil) {
+          shooter.ammo = spec.magSize
+          shooter.reloadingUntil = null
+        } else {
+          return { ok: false, code: 'RELOADING', message: 'กำลังรีโหลดอาวุธ' }
+        }
+      }
+
+      if (shooter.ammo <= 0) {
+        return { ok: false, code: 'OUT_OF_AMMO', message: 'กระสุนหมด กด R เพื่อรีโหลด' }
       }
     }
 
-    if (shooter.ammo <= 0) {
-      return { ok: false, code: 'OUT_OF_AMMO', message: 'กระสุนหมด กด R เพื่อรีโหลด' }
-    }
-
     if (now - shooter.lastShotAt < effectiveFireRateMs - 20) {
-      return { ok: false, code: 'FIRE_RATE_LIMIT', message: 'ยิงเร็วเกินขีดจำกัดของอาวุธ' }
+      return { ok: false, code: 'FIRE_RATE_LIMIT', message: 'โจมตีเร็วเกินขีดจำกัด' }
     }
 
     const authEye: Vec3 = {
@@ -1426,10 +1518,16 @@ export class RoomManager {
     const baseDir = normalizeVec3(rawDirection)
     const barriers = this.getActiveBarrierBoxes(room, now)
 
-    const ammoCost = spec.id === 'burst' ? Math.min(shooter.ammo, 3) : 1
-    const shotPellets = spec.id === 'burst' ? ammoCost : spec.pellets
+    const ammoCost = isMelee || !spec ? 0 : spec.id === 'burst' ? Math.min(shooter.ammo, 3) : 1
+    const shotPellets = isMelee || !spec ? 1 : spec.id === 'burst' ? ammoCost : spec.pellets
+    const maxRange = isMelee || !spec ? UNARMED_MELEE_SPEC.range : spec.range
+    const spreadRad = isMelee || !spec ? 0 : spec.spreadRad
+    const bodyDamage = isMelee || !spec ? UNARMED_MELEE_SPEC.damage : spec.damage
+    const headDamage = isMelee || !spec ? UNARMED_MELEE_SPEC.headshotDamage : spec.headshotDamage
 
-    shooter.ammo -= ammoCost
+    if (!isMelee) {
+      shooter.ammo -= ammoCost
+    }
     shooter.lastShotAt = now
 
     const endpoints: Vec3[] = []
@@ -1437,9 +1535,9 @@ export class RoomManager {
 
     for (let pellet = 0; pellet < shotPellets; pellet++) {
       let dir = baseDir
-      if (shotPellets > 1 && spec.spreadRad > 0) {
+      if (shotPellets > 1 && spreadRad > 0) {
         const angle = (pellet / shotPellets) * Math.PI * 2 + this.rngFn() * 0.5
-        const mag = (0.3 + this.rngFn() * 0.7) * spec.spreadRad
+        const mag = (0.3 + this.rngFn() * 0.7) * spreadRad
         dir = normalizeVec3({
           x: baseDir.x + Math.cos(angle) * mag,
           y: baseDir.y + Math.sin(angle) * mag * 0.75,
@@ -1447,7 +1545,7 @@ export class RoomManager {
         })
       }
 
-      const wallDist = raycastArenaObstacles(rayOrigin, dir, spec.range, barriers)
+      const wallDist = raycastArenaObstacles(rayOrigin, dir, maxRange, barriers)
       let closestTarget: { player: InternalPlayer; distance: number; headshot: boolean } | null = null
 
       for (const candidate of room.players.values()) {
@@ -1467,7 +1565,7 @@ export class RoomManager {
           y: rayOrigin.y + dir.y * closestTarget.distance,
           z: rayOrigin.z + dir.z * closestTarget.distance,
         })
-        const rawDmg = closestTarget.headshot ? spec.headshotDamage : spec.damage
+        const rawDmg = closestTarget.headshot ? headDamage : bodyDamage
         const dmg = Math.round(rawDmg * damageMult)
         const prev = damageAccumulator.get(closestTarget.player.id)
         damageAccumulator.set(closestTarget.player.id, {
@@ -1501,8 +1599,9 @@ export class RoomManager {
         victim,
         info.damage,
         info.headshot,
-        shooter.weapon,
+        weaponIdOrMelee,
         now,
+        isMelee ? UNARMED_MELEE_SPEC.name : undefined,
       )
       hits.push(record)
       if (record.confirm.killed) scoreboardChanged = true
@@ -1512,7 +1611,7 @@ export class RoomManager {
       id: randomUUID(),
       shooterId: shooter.id,
       shooterTeam: shooter.team,
-      weapon: shooter.weapon,
+      weapon: weaponIdOrMelee,
       origin: rayOrigin,
       endpoints,
       hitPlayerId: primaryHitPlayerId,
@@ -1687,7 +1786,7 @@ export class RoomManager {
             eff.detonated = true
             effectsDirty = true
             const attacker = room.players.get(eff.ownerId)
-            if (attacker && room.roundState === 'COMBAT_ACTIVE') {
+            if (attacker && (room.roundState === 'COMBAT_ACTIVE' || room.roundState === 'FREE_PLAY')) {
               const orbitalHits: CombatHitRecord[] = []
               for (const enemy of room.players.values()) {
                 if (enemy.team === eff.ownerTeam || !enemy.alive || !enemy.connected) continue

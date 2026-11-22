@@ -15,9 +15,11 @@ import {
 import { useEffect, useRef, useState } from 'react'
 import { AGENTS } from '../../shared/agents.ts'
 import type { SkillSlot } from '../../shared/types.ts'
-import { WEAPONS } from '../../shared/weapons.ts'
+import { WEAPON_IDS, WEAPONS } from '../../shared/weapons.ts'
 import { soundEngine } from '../game/sound.ts'
+import { multiplayerClient } from '../multiplayer/client.ts'
 import { selectMyPlayer, useGameStore } from '../store/useGameStore.ts'
+import { FullscreenButton } from './FullscreenButton.tsx'
 
 function formatTimer(ms: number): string {
   const clamped = Math.max(0, Math.ceil(ms / 1000))
@@ -219,17 +221,23 @@ export function GameHUD() {
               data-max-rounds={room.maxRounds ?? 10}
               className="text-[9px] font-display tracking-[0.22em] text-cyan-300 uppercase"
             >
-              ROUND {room.roundNumber}/{room.maxRounds ?? 10} • {room.roundState.replace('_', ' ')}
+              {room.roundState === 'FREE_PLAY'
+                ? 'FREE PLAY • ALL 8 WEAPONS UNLOCKED'
+                : `ROUND ${room.roundNumber}/${room.maxRounds ?? 10} • ${room.roundState.replace('_', ' ')}`}
             </div>
             <div
               id="hud-match-timer"
               className={`font-display text-3xl font-black tracking-wider ${
-                practiceMode ? 'text-emerald-300' : lowTime ? 'text-rose-400' : 'text-white'
+                practiceMode || room.roundState === 'FREE_PLAY'
+                  ? 'text-emerald-300'
+                  : lowTime
+                    ? 'text-rose-400'
+                    : 'text-white'
               }`}
             >
-              {practiceMode ? 'FREE' : formatTimer(timeLeftMs)}
+              {practiceMode || room.roundState === 'FREE_PLAY' ? 'FREE' : formatTimer(timeLeftMs)}
             </div>
-            {room.phase === 'playing' && (
+            {room.phase === 'playing' && room.roundState !== 'FREE_PLAY' && (
               <div
                 id="hud-round-timer"
                 className="text-[10px] font-mono text-amber-300 tracking-wider mt-0.5"
@@ -286,6 +294,7 @@ export function GameHUD() {
           </span>
           <span
             id="hud-pointer-lock-status"
+            data-mouse-look-active={String(pointerLocked)}
             className={`inline-flex items-center gap-1 text-[10px] font-display tracking-wider uppercase px-2 py-0.5 border ${
               pointerLocked
                 ? 'bg-emerald-950/80 border-emerald-400/70 text-emerald-300'
@@ -293,7 +302,7 @@ export function GameHUD() {
             }`}
           >
             {pointerLocked ? <Lock className="w-2.5 h-2.5" /> : <Unlock className="w-2.5 h-2.5" />}
-            {pointerLocked ? 'AIM LOCKED' : 'CLICK TO LOCK'}
+            {pointerLocked ? 'MOUSE LOOK ON [TAB: EXIT]' : 'PRESS [TAB] / CLICK TO LOOK'}
           </span>
         </div>
         {recentKills.slice(0, 4).map((k) => (
@@ -305,7 +314,13 @@ export function GameHUD() {
               {k.killerName}
             </span>
             <span className="text-[10px] font-display text-amber-300 uppercase px-1">
-              [{k.weapon === 'skill' ? (k.skillLabel ?? 'SKILL') : WEAPONS[k.weapon].name.split(' ')[0]}]
+              [
+              {k.weapon === 'skill'
+                ? (k.skillLabel ?? 'SKILL')
+                : k.weapon === 'melee'
+                  ? 'CYBER FISTS'
+                  : WEAPONS[k.weapon].name.split(' ')[0]}
+              ]
             </span>
             {k.headshot && <Target className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
             <span className={k.victimTeam === 'blue' ? 'text-cyan-300' : 'text-rose-400'}>
@@ -316,18 +331,21 @@ export function GameHUD() {
         ))}
       </div>
 
-      {/* TOP RIGHT — Compact Live Leaderboard + [H] In-Game Controls Reference */}
-      <div className="fixed top-4 right-4 w-56 space-y-1.5 hidden sm:block">
-        <div className="flex items-center justify-between px-1 text-[10px] font-display tracking-[0.18em] text-slate-400 uppercase">
-          <span>{practiceMode ? 'TRAINING STATS' : 'LIVE RANKING [TAB]'}</span>
-          <button
-            id="btn-hud-controls-ref"
-            type="button"
-            onClick={toggleControlsRef}
-            className="pointer-events-auto inline-flex items-center gap-1 px-1.5 py-0.5 bg-slate-950/85 hover:bg-slate-800 border border-slate-700 text-cyan-300 cursor-pointer"
-          >
-            <Keyboard className="w-3 h-3" /> [H]
-          </button>
+      {/* TOP RIGHT — Compact Live Leaderboard + Fullscreen + [H] In-Game Controls Reference */}
+      <div className="fixed top-4 right-4 w-60 space-y-1.5 hidden sm:block">
+        <div className="flex items-center justify-between gap-1 px-1 text-[10px] font-display tracking-[0.16em] text-slate-400 uppercase">
+          <span className="truncate">{practiceMode ? 'TRAINING' : 'RANKING'}</span>
+          <div className="flex items-center gap-1">
+            <FullscreenButton id="btn-hud-fullscreen" compact />
+            <button
+              id="btn-hud-controls-ref"
+              type="button"
+              onClick={toggleControlsRef}
+              className="pointer-events-auto inline-flex items-center gap-1 px-1.5 py-0.5 bg-slate-950/85 hover:bg-slate-800 border border-slate-700 text-cyan-300 cursor-pointer"
+            >
+              <Keyboard className="w-3 h-3" /> [H]
+            </button>
+          </div>
         </div>
         {room.scoreboard.slice(0, 5).map((entry) => {
           const isMe = entry.playerId === me.id
@@ -549,9 +567,9 @@ export function GameHUD() {
               สถานะมือเปล่า (UNARMED) — รอจบ Combat Round ({roundLeftSec}s) เพื่อตอบคณิตรับอาวุธใหม่
             </div>
           )}
-          {me.weapon && !pointerLocked && (
+          {!pointerLocked && (
             <div className="px-4 py-1 bg-slate-950/85 border border-cyan-500/45 text-[11px] font-thai tracking-wide text-cyan-200">
-              คลิกที่สนามเพื่อล็อกเมาส์ • กด <strong className="font-display text-emerald-300">[CTRL]</strong> เล็ง • <strong className="font-display text-cyan-300">[SHIFT]</strong> วิ่ง • จบ Round สุ่มปืนผ่านโจทย์คณิตอัตโนมัติ
+              กด <strong className="font-display text-amber-300">[TAB]</strong> หรือคลิกสนามเพื่อเปิดโหมดหันด้วยเมาส์ (กด <strong className="font-display text-amber-300">[TAB]</strong> อีกครั้งเพื่อออก) • <strong className="font-display text-emerald-300">[CTRL]</strong> เล็ง • <strong className="font-display text-cyan-300">[SHIFT]</strong> วิ่ง
             </div>
           )}
         </div>
@@ -624,6 +642,61 @@ export function GameHUD() {
         </div>
       </div>
 
+      {/* POST-10-ROUNDS FREE PLAY WEAPON SELECTOR BAR (only visible in FREE_PLAY!) */}
+      {room.phase === 'playing' && room.roundState === 'FREE_PLAY' && !pauseOpen && (
+        <div
+          id="hud-free-weapon-bar"
+          data-ui-interactive="true"
+          className="pointer-events-auto fixed bottom-24 left-1/2 -translate-x-1/2 hud-panel hud-cut-sm border border-emerald-400/70 px-3 py-2 flex flex-wrap items-center justify-center gap-1.5 max-w-[94vw] shadow-[0_0_30px_rgba(16,185,129,0.28)]"
+        >
+          <span className="text-[10px] font-display font-black tracking-wider text-emerald-300 uppercase mr-1">
+            FREE WEAPONS:
+          </span>
+          {WEAPON_IDS.map((wid) => {
+            const w = WEAPONS[wid]
+            const active = me.weapon === wid
+            return (
+              <button
+                key={wid}
+                id={`btn-free-weapon-${wid}`}
+                type="button"
+                onClick={() => multiplayerClient.selectFreeWeapon(wid)}
+                className={`px-2 py-1 text-[10px] font-display font-bold uppercase border transition cursor-pointer ${
+                  active
+                    ? 'bg-slate-900 text-white scale-105'
+                    : 'bg-slate-950/85 border-slate-700 text-slate-300 hover:border-cyan-400'
+                }`}
+                style={active ? { borderColor: w.accentColor, color: w.accentColor } : undefined}
+              >
+                {wid.toUpperCase()}
+              </button>
+            )
+          })}
+          <button
+            id="btn-free-weapon-fists"
+            type="button"
+            onClick={() => multiplayerClient.selectFreeWeapon(null)}
+            className={`px-2 py-1 text-[10px] font-display font-bold uppercase border transition cursor-pointer ${
+              me.weapon === null
+                ? 'bg-rose-950 border-rose-400 text-rose-200 scale-105'
+                : 'bg-slate-950/85 border-slate-700 text-rose-300 hover:border-rose-400'
+            }`}
+          >
+            FISTS
+          </button>
+          {me.isHost && (
+            <button
+              id="btn-free-play-lobby"
+              type="button"
+              onClick={() => multiplayerClient.returnToLobby()}
+              className="ml-1 px-2.5 py-1 text-[10px] font-display font-black uppercase bg-cyan-500 hover:bg-cyan-400 text-slate-950 cursor-pointer"
+            >
+              LOBBY
+            </button>
+          )}
+        </div>
+      )}
+
       {/* BOTTOM CENTER — VALORANT-STYLE AGENT ABILITY DOCK (Q / C / X) */}
       {room.phase === 'playing' && (
         <div
@@ -634,7 +707,11 @@ export function GameHUD() {
           <button
             id="btn-hud-skill-Q"
             type="button"
-            disabled={!me.alive || qCdSec > 0 || room.roundState !== 'COMBAT_ACTIVE'}
+            disabled={
+              !me.alive ||
+              qCdSec > 0 ||
+              (room.roundState !== 'COMBAT_ACTIVE' && room.roundState !== 'FREE_PLAY')
+            }
             onClick={() => triggerSkillFromHud('Q')}
             className={`hud-panel hud-cut-sm border px-3 py-2 min-w-[106px] text-left transition cursor-pointer disabled:cursor-not-allowed ${
               qCdSec === 0
@@ -662,7 +739,11 @@ export function GameHUD() {
           <button
             id="btn-hud-skill-C"
             type="button"
-            disabled={!me.alive || cCdSec > 0 || room.roundState !== 'COMBAT_ACTIVE'}
+            disabled={
+              !me.alive ||
+              cCdSec > 0 ||
+              (room.roundState !== 'COMBAT_ACTIVE' && room.roundState !== 'FREE_PLAY')
+            }
             onClick={() => triggerSkillFromHud('C')}
             className={`hud-panel hud-cut-sm border px-3 py-2 min-w-[106px] text-left transition cursor-pointer disabled:cursor-not-allowed ${
               cCdSec === 0
@@ -690,7 +771,11 @@ export function GameHUD() {
           <button
             id="btn-hud-skill-X"
             type="button"
-            disabled={!me.alive || !ultReady || room.roundState !== 'COMBAT_ACTIVE'}
+            disabled={
+              !me.alive ||
+              !ultReady ||
+              (room.roundState !== 'COMBAT_ACTIVE' && room.roundState !== 'FREE_PLAY')
+            }
             onClick={() => triggerSkillFromHud('X')}
             className={`hud-panel hud-cut-sm border px-3.5 py-2 min-w-[132px] text-left transition cursor-pointer disabled:cursor-not-allowed ${
               ultReady
@@ -777,16 +862,26 @@ export function GameHUD() {
               )}
             </>
           ) : (
-            <div className="flex items-center justify-between gap-3 py-1">
-              <div>
-                <div className="font-display text-sm font-bold text-rose-400 uppercase" id="hud-weapon-name">
-                  NO WEAPON EQUIPPED
+            <div className="space-y-1 py-0.5">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="font-display text-sm font-bold text-rose-400 uppercase" id="hud-weapon-name">
+                    NO WEAPON EQUIPPED
+                  </div>
+                  <div className="text-[10px] font-display tracking-widest text-amber-300 uppercase">
+                    CYBER FISTS • MELEE (DMG 35 / HS 55)
+                  </div>
                 </div>
-                <div className="font-thai text-xs text-rose-200">
-                  อาวุธถูกยึด • รอจบ Round เพื่อทำโจทย์รับอาวุธใหม่
-                </div>
+                <Crosshair className="w-5 h-5 text-rose-400" />
               </div>
-              <Crosshair className="w-6 h-6 text-rose-500/70" />
+              <div className="flex items-baseline justify-between pt-0.5">
+                <span className="font-display text-xl font-black text-rose-200" id="hud-ammo-value">
+                  ∞ FISTS
+                </span>
+                <span className="font-thai text-[11px] text-rose-200">
+                  คลิกซ้ายต่อยระยะ 3.4m
+                </span>
+              </div>
             </div>
           )}
         </div>

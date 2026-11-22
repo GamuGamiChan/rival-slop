@@ -80,6 +80,9 @@ class CentralizedInputManager {
   private mouseRightDown = false
   private dragAimActive = false
   private pointerLocked = false
+  private tabMouseLookActive = false
+  private lastMouseClientX: number | null = null
+  private lastMouseClientY: number | null = null
   private expectingProgrammaticUnlock = false
 
   private pendingMouseDx = 0
@@ -140,21 +143,29 @@ class CentralizedInputManager {
   }
 
   requestPointerLock(): void {
+    this.tabMouseLookActive = true
+    this.lastMouseClientX = null
+    this.lastMouseClientY = null
+    this.callbacks?.onPointerLockChange(true, false)
     if (!this.canvas) return
     if (document.pointerLockElement === this.canvas) return
     try {
       const result = this.canvas.requestPointerLock?.() as unknown as Promise<void> | undefined
       if (result && typeof result.catch === 'function') {
         result.catch(() => {
-          this.callbacks?.onPointerLockError()
+          // Even if browser blocks Pointer Lock (e.g. from keyboard Tab press), tabMouseLookActive remains true!
+          this.callbacks?.onPointerLockChange(true, false)
         })
       }
     } catch {
-      this.callbacks?.onPointerLockError()
+      this.callbacks?.onPointerLockChange(true, false)
     }
   }
 
   releasePointerLockProgrammatically(): void {
+    this.tabMouseLookActive = false
+    this.lastMouseClientX = null
+    this.lastMouseClientY = null
     if (document.pointerLockElement) {
       this.expectingProgrammaticUnlock = true
       try {
@@ -162,6 +173,16 @@ class CentralizedInputManager {
       } catch {
         this.expectingProgrammaticUnlock = false
       }
+    }
+    this.pointerLocked = false
+    this.callbacks?.onPointerLockChange(false, true)
+  }
+
+  toggleMouseLookWithTab(): void {
+    if (this.pointerLocked || this.tabMouseLookActive) {
+      this.releasePointerLockProgrammatically()
+    } else {
+      this.requestPointerLock()
     }
   }
 
@@ -172,6 +193,8 @@ class CentralizedInputManager {
     this.mouseLeftDown = false
     this.mouseRightDown = false
     this.dragAimActive = false
+    this.lastMouseClientX = null
+    this.lastMouseClientY = null
     this.pendingMouseDx = 0
     this.pendingMouseDy = 0
     this.lastMathRPressAt = 0
@@ -208,7 +231,7 @@ class CentralizedInputManager {
       sprint: this.isSprinting(),
       aim: this.isAiming(),
       shooting: this.mouseLeftDown,
-      pointerLocked: this.pointerLocked,
+      pointerLocked: this.pointerLocked || this.tabMouseLookActive,
       arrowLeft: this.heldCodes.has('ArrowLeft'),
       arrowRight: this.heldCodes.has('ArrowRight'),
       arrowUp: this.heldCodes.has('ArrowUp'),
@@ -232,23 +255,30 @@ class CentralizedInputManager {
     const locked = Boolean(this.canvas && document.pointerLockElement === this.canvas)
     const wasExpected = this.expectingProgrammaticUnlock
     this.pointerLocked = locked
+    if (locked) {
+      this.tabMouseLookActive = true
+    } else if (wasExpected) {
+      this.tabMouseLookActive = false
+    }
     this.expectingProgrammaticUnlock = false
 
     // Discard any queued mouse delta across pointer-lock state transitions to avoid sudden snap
     this.pendingMouseDx = 0
     this.pendingMouseDy = 0
-    if (!locked) {
+    this.lastMouseClientX = null
+    this.lastMouseClientY = null
+    if (!locked && !this.tabMouseLookActive) {
       this.mouseLeftDown = false
       this.dragAimActive = false
     }
 
-    this.callbacks?.onPointerLockChange(locked, wasExpected)
+    this.callbacks?.onPointerLockChange(locked || this.tabMouseLookActive, wasExpected)
   }
 
   private handlePointerLockError = (): void => {
     this.pointerLocked = false
     this.expectingProgrammaticUnlock = false
-    this.callbacks?.onPointerLockError()
+    this.callbacks?.onPointerLockChange(this.tabMouseLookActive, true)
   }
 
   private handleBlur = (): void => {
@@ -272,14 +302,33 @@ class CentralizedInputManager {
     if (!cb || !cb.isArenaActive() || cb.isMathModalOpen() || cb.isPauseOpen()) {
       this.pendingMouseDx = 0
       this.pendingMouseDy = 0
+      this.lastMouseClientX = null
+      this.lastMouseClientY = null
       return
     }
 
-    // Rotate camera ONLY when Pointer Lock is active or user is intentionally drag-aiming
-    if (!this.pointerLocked && !this.dragAimActive) return
+    // Rotate camera ONLY when Pointer Lock / Tab Mouse Look is active or user is intentionally drag-aiming
+    if (!this.pointerLocked && !this.tabMouseLookActive && !this.dragAimActive) {
+      this.lastMouseClientX = null
+      this.lastMouseClientY = null
+      return
+    }
 
-    const dx = Number.isFinite(e.movementX) ? e.movementX : 0
-    const dy = Number.isFinite(e.movementY) ? e.movementY : 0
+    let dx = Number.isFinite(e.movementX) ? e.movementX : 0
+    let dy = Number.isFinite(e.movementY) ? e.movementY : 0
+
+    // Fallback delta computation from clientX/clientY when Tab Mouse Look is active without native pointerLock
+    if (!this.pointerLocked && this.tabMouseLookActive && dx === 0 && dy === 0) {
+      if (this.lastMouseClientX !== null && this.lastMouseClientY !== null) {
+        dx = e.clientX - this.lastMouseClientX
+        dy = e.clientY - this.lastMouseClientY
+      }
+      this.lastMouseClientX = e.clientX
+      this.lastMouseClientY = e.clientY
+    } else {
+      this.lastMouseClientX = e.clientX
+      this.lastMouseClientY = e.clientY
+    }
 
     // Reject spurious browser pointer-lock spike events (>140px in a single tick)
     if (Math.abs(dx) > MAX_SINGLE_MOUSE_DELTA || Math.abs(dy) > MAX_SINGLE_MOUSE_DELTA) {
@@ -300,7 +349,7 @@ class CentralizedInputManager {
       return
     }
 
-    // Clicking the game canvas requests Pointer Lock cleanly
+    // Clicking the game canvas requests Pointer Lock / Mouse Look cleanly
     if (!this.pointerLocked && e.target === this.canvas) {
       this.requestPointerLock()
     }
@@ -354,6 +403,10 @@ class CentralizedInputManager {
     if (e.code === 'Tab') {
       e.preventDefault()
       if (!cb.isPauseOpen()) {
+        if (!e.repeat && !cb.isMathModalOpen()) {
+          // Toggle Mouse Look Mode on Tab press, and exit Mouse Look Mode on second Tab press!
+          this.toggleMouseLookWithTab()
+        }
         cb.onScoreboardChange(true)
       }
       return

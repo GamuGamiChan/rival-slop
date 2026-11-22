@@ -203,7 +203,7 @@ export interface ActiveTracer {
   id: string
   shooterId?: string
   shooterTeam: 'blue' | 'red'
-  weapon: WeaponId
+  weapon: WeaponId | 'melee'
   origin: Vec3
   endpoints: Vec3[]
   createdAt: number
@@ -309,7 +309,7 @@ export interface GameState {
   triggerLocalShotVisual: () => void
   addLocalTracer: (
     shooterTeam: 'blue' | 'red',
-    weapon: WeaponId,
+    weapon: WeaponId | 'melee',
     origin: Vec3,
     endpoints: Vec3[],
   ) => void

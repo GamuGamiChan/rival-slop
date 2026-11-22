@@ -18,6 +18,7 @@ import { AGENT_IDS, AGENTS } from '../../shared/agents.ts'
 import { REWARD_WEAPON_POOL, WEAPONS } from '../../shared/weapons.ts'
 import { multiplayerClient } from '../multiplayer/client.ts'
 import { loadSession, useGameStore } from '../store/useGameStore.ts'
+import { FullscreenButton } from './FullscreenButton.tsx'
 
 export function MainMenu() {
   const playerName = useGameStore((s) => s.playerName)
@@ -71,7 +72,7 @@ export function MainMenu() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="hidden sm:inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold tracking-wider uppercase bg-slate-900/80 border border-slate-700/80 text-slate-300 hud-cut-sm">
             <span className="h-2 w-2 rounded-full bg-emerald-400" />
             {transportMode === 'supabase'
@@ -80,6 +81,7 @@ export function MainMenu() {
                 ? 'WebRTC P2P Online'
                 : 'Authoritative WS'}
           </span>
+          <FullscreenButton id="btn-menu-fullscreen" />
           <button
             id="btn-menu-credits"
             type="button"
@@ -120,10 +122,10 @@ export function MainMenu() {
               <span className="text-rose-500">3D</span>
             </h1>
             <p className="font-thai text-slate-300 text-sm sm:text-base max-w-xl leading-relaxed">
-              สู้กันในแต่ละ <strong className="text-cyan-300">Combat Round</strong> เมื่อจบรอบระบบจะเปิด{' '}
-              <strong className="text-amber-300">Math Challenge</strong> พร้อมกันทั้งห้อง — ตอบถูกสุ่มรับปืนใหม่ (
-              <strong className="text-emerald-300">Pistol / Rifle / Shotgun / Sniper</strong>) ตอบผิด{' '}
-              <strong className="text-rose-400">ยึดอาวุธทันทีและหัก 300 คะแนน!</strong>
+              สู้กันครบ <strong className="text-cyan-300">10 ตา (10 Rounds)</strong> เมื่อจบแต่ละรอบจะเปิด{' '}
+              <strong className="text-amber-300">Math Challenge</strong> พร้อมกันทั้งห้อง — ตอบถูกสุ่มรับปืนไซไฟ{' '}
+              <strong className="text-emerald-300">8 ชนิด</strong> (Pistol / Revolver / SMG / Rifle / Burst / Shotgun /
+              LMG / Sniper) ตอบผิด <strong className="text-rose-400">ยึดปืนเหลือหมัดมือเปล่า (Cyber Fists) และหัก 300 คะแนน!</strong>
             </p>
           </div>
 
