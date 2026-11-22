@@ -115,16 +115,124 @@ describe('Authoritative RoomManager — Functional & Security Verification', () 
     }
   })
 
-  it('rolls all 4 weapon types with distinct gameplay profiles', () => {
+  it('rolls all 8 weapon types with distinct gameplay profiles', () => {
     const seen = new Set<string>()
-    for (let i = 0; i < 200; i++) {
+    for (let i = 0; i < 400; i++) {
       seen.add(rollRandomWeapon('medium', null))
     }
-    expect(seen.size).toBe(4)
+    expect(seen.size).toBe(8)
     expect(WEAPONS.sniper.headshotDamage).toBeGreaterThanOrEqual(100)
+    expect(WEAPONS.revolver.headshotDamage).toBeGreaterThanOrEqual(100)
     expect(WEAPONS.shotgun.pellets).toBe(6)
+    expect(WEAPONS.burst.pellets).toBe(3)
+    expect(WEAPONS.lmg.magSize).toBe(55)
+    expect(WEAPONS.smg.fireRateMs).toBeLessThan(WEAPONS.rifle.fireRateMs)
     expect(WEAPONS.rifle.automatic).toBe(true)
     expect(WEAPONS.pistol.reloadMs).toBeLessThan(WEAPONS.sniper.reloadMs)
+  })
+
+  it('validates Valorant-style Agent selection, Q/C cooldowns, Ult charge, Barrier bullet blocking, Flash, Recon, and Orbital Strike', () => {
+    let now = 4_000_000
+    const mgr = new RoomManager(() => now, () => 0.99)
+    const p1 = mgr.createRoom('AegisPlayer')
+    const p2 = mgr.joinRoom(p1.roomCode, 'PhantomRival')
+    if (!p2.ok) throw new Error('join failed')
+
+    // Select Agents in lobby
+    expect(mgr.selectAgent(p1.roomCode, p1.playerId, 'aegis').ok).toBe(true)
+    expect(mgr.selectAgent(p1.roomCode, p2.playerId, 'phantom').ok).toBe(true)
+
+    mgr.startMatch(p1.roomCode, p1.playerId)
+    now += MATCH_CONFIG.COUNTDOWN_SEC * 1000
+    mgr.tick()
+
+    // Cannot switch Agent after match started
+    expect(mgr.selectAgent(p1.roomCode, p1.playerId, 'vortex').ok).toBe(false)
+
+    // Ultimate rejected before 4 ult points
+    const earlyUlt = mgr.useSkill(p1.roomCode, p1.playerId, 'X', { x: 0, y: 1.56, z: -10 }, { x: 0, y: 0, z: 1 })
+    expect(earlyUlt.ok).toBe(false)
+    if (!earlyUlt.ok) expect(earlyUlt.code).toBe('ULT_NOT_READY')
+
+    // Solve 4 math questions -> earns 4 ult points (+1 each) + unlocks weapon
+    for (let i = 0; i < 4; i++) {
+      const q = mgr.requestQuestion(p1.roomCode, p1.playerId)
+      if (!q.ok) throw new Error('q failed')
+      const truth = QUESTION_BY_ID.get(q.question.id)!
+      mgr.submitAnswer(p1.roomCode, p1.playerId, truth.id, truth.correctIndex)
+    }
+
+    const room = mgr.getRoom(p1.roomCode)!
+    const aegis = room.players.get(p1.playerId)!
+    const phantom = room.players.get(p2.playerId)!
+    expect(aegis.ultPoints).toBe(4)
+
+    // Cast Aegis [X] TITAN SHIELD -> 175 HP overshield & consumes 4 ult points
+    const titan = mgr.useSkill(p1.roomCode, p1.playerId, 'X', { x: 0, y: 1.56, z: -10 }, { x: 0, y: 0, z: 1 })
+    expect(titan.ok).toBe(true)
+    expect(aegis.hp).toBe(175)
+    expect(aegis.maxHp).toBe(175)
+    expect(aegis.ultPoints).toBe(0)
+
+    // Place Aegis and Phantom face-to-face in open West lane (x = -11)
+    aegis.position = { x: -11, y: 0, z: -6 }
+    phantom.position = { x: -11, y: 0, z: 4 }
+    phantom.weapon = 'sniper'
+    phantom.ammo = 5
+
+    // Aegis deploys [C] BARRIER WALL directly toward +Z (at z = -2.4)
+    const wall = mgr.useSkill(
+      p1.roomCode,
+      p1.playerId,
+      'C',
+      { x: -11, y: PLAYER_DIMENSIONS.eyeHeight, z: -6 },
+      { x: 0, y: 0, z: 1 },
+    )
+    expect(wall.ok).toBe(true)
+    expect(room.worldEffects.some((e) => e.kind === 'barrier')).toBe(true)
+
+    // Immediate recast rejected by server cooldown
+    const cdCheck = mgr.useSkill(
+      p1.roomCode,
+      p1.playerId,
+      'C',
+      { x: -11, y: PLAYER_DIMENSIONS.eyeHeight, z: -6 },
+      { x: 0, y: 0, z: 1 },
+    )
+    expect(cdCheck.ok).toBe(false)
+    if (!cdCheck.ok) expect(cdCheck.code).toBe('SKILL_COOLDOWN')
+
+    // Phantom shoots straight at Aegis -> BLOCKED by Aegis Barrier Wall!
+    const blockedByBarrier = mgr.shoot(
+      p1.roomCode,
+      p2.playerId,
+      { x: -11, y: PLAYER_DIMENSIONS.eyeHeight, z: 4 },
+      { x: 0, y: 0, z: -1 },
+    )
+    expect(blockedByBarrier.ok).toBe(true)
+    if (blockedByBarrier.ok) {
+      expect(blockedByBarrier.outcome.hits).toHaveLength(0)
+    }
+
+    // Phantom casts [X] ORBITAL STRIKE from real eye position aiming at Aegis's feet (z=-6)
+    phantom.ultPoints = 4
+    aegis.hp = 60
+    const orbital = mgr.useSkill(
+      p1.roomCode,
+      p2.playerId,
+      'X',
+      { x: -11, y: PLAYER_DIMENSIONS.eyeHeight, z: 4 },
+      { x: 0, y: -PLAYER_DIMENSIONS.eyeHeight / 10, z: -1 },
+    )
+    expect(orbital.ok).toBe(true)
+
+    now += 950
+    const orbTick = mgr.tick()
+    const orbEvent = orbTick.find((t) => t.type === 'ORBITAL_DETONATED')
+    expect(orbEvent).toBeDefined()
+    expect(aegis.alive).toBe(false)
+    expect(phantom.kills).toBe(1)
+    expect(phantom.totalScore).toBe(SCORING.KILL)
   })
 
   it('validates server-side hit detection, headshot bonus (+50), wall occlusion, fire rate, and respawn', () => {

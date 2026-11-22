@@ -93,17 +93,19 @@ def run_e2e():
         page2.click("#btn-join-room-submit")
         page2.wait_for_selector("#lobby-room-code", timeout=10000)
 
-        # Wait for lobby sync across both sessions
+        # Wait for lobby sync across both sessions + pick Valorant-style Agents
         page1.wait_for_function(
             "() => document.querySelector('#lobby-player-count')?.textContent?.includes('2 / 8')",
             timeout=10000,
         )
+        page1.click("#btn-agent-aegis")
+        page2.click("#btn-agent-pulse")
         page2.click("#btn-toggle-ready")
-        page1.wait_for_timeout(400)
+        page1.wait_for_timeout(450)
         page1.screenshot(animations="disabled", path=f"{SCREENSHOT_DIR}/02_lobby.png")
-        print("      -> Both players synced in Lobby (Blue vs Red)!")
+        print("      -> Both players synced in Lobby with Agents AEGIS & PULSE!", flush=True)
 
-        print("[4/9] Host starting 90-second match (3-2-1 Countdown)...")
+        print("[4/9] Host starting 90-second match (3-2-1 Countdown)...", flush=True)
         page1.click("#btn-start-match")
         page1.wait_for_selector("#hud-match-timer", timeout=10000)
         page2.wait_for_selector("#hud-match-timer", timeout=10000)
@@ -115,9 +117,9 @@ def run_e2e():
         t2 = parse_mmss(page2.inner_text("#hud-match-timer"))
         assert abs(t1 - t2) <= 1, f"Timer desync: P1={t1}s vs P2={t2}s"
         assert 85 <= t1 <= 90, f"Unexpected initial match timer: {t1}s"
-        print(f"      -> Synchronized timers verified! P1={t1}s, P2={t2}s")
+        print(f"      -> Synchronized timers verified! P1={t1}s, P2={t2}s", flush=True)
 
-        print("[5/9] Player 1 opening Math Terminal & answering CORRECTLY...")
+        print("[5/9] Player 1 opening Math Terminal & answering CORRECTLY...", flush=True)
         page1.click("#btn-hud-open-math")
         page1.wait_for_selector("#math-question-prompt", timeout=8000)
         q1_prompt = page1.inner_text("#math-question-prompt").strip()
@@ -137,9 +139,9 @@ def run_e2e():
         weapon_name = page1.inner_text("#hud-weapon-name").strip()
         assert weapon_name != "NO WEAPON EQUIPPED", "Weapon should be equipped after correct answer!"
         ammo_before = int(page1.inner_text("#hud-ammo-value").strip())
-        print(f"      -> P1 answered correctly! Score=100, Weapon={weapon_name}, Ammo={ammo_before}")
+        print(f"      -> P1 answered correctly! Score=100, Weapon={weapon_name}, Ammo={ammo_before}", flush=True)
 
-        print("[6/9] Player 2 answering WRONGLY -> verify +0 pts & NO weapon...")
+        print("[6/9] Player 2 answering WRONGLY -> verify +0 pts & NO weapon...", flush=True)
         page2.click("#btn-hud-open-math")
         page2.wait_for_selector("#math-question-prompt", timeout=8000)
         q2_prompt = page2.inner_text("#math-question-prompt").strip()
@@ -151,26 +153,34 @@ def run_e2e():
         page2.click("#btn-close-math")
         assert page2.inner_text("#hud-my-score").strip() == "0"
         assert page2.inner_text("#hud-weapon-name").strip() == "NO WEAPON EQUIPPED"
-        print("      -> P2 wrong answer properly gave +0 pts & no weapon!")
+        print("      -> P2 wrong answer properly gave +0 pts & no weapon!", flush=True)
 
-        print("[7/9] Testing 3D movement, shooting, ammo sync, reload, and Live Scoreboard (Tab)...")
-        # Wait for math modal auto-close on P1
-        page1.wait_for_timeout(1300)
-        # Walk forward, jump, and shoot via keyboard fallback (KeyF)
-        page1.keyboard.down("KeyW")
+        print("[7/9] Testing Agent Skills ([C] Barrier Wall & [Q] Recon Sonar), 3D movement, shooting & reload...", flush=True)
+        page1.wait_for_timeout(1200)
+        # Cast Aegis [C] Barrier Wall on P1 and Pulse [Q] Recon Sonar on P2!
+        page1.keyboard.press("KeyC")
+        page2.keyboard.press("KeyQ")
         page1.wait_for_timeout(350)
+        c_status = page1.inner_text("#hud-skill-C-status").strip()
+        q_status_p2 = page2.inner_text("#hud-skill-Q-status").strip()
+        assert c_status != "READY" and c_status.endswith("s"), f"Expected P1 C cooldown, got {c_status}"
+        assert q_status_p2 != "READY" and q_status_p2.endswith("s"), f"Expected P2 Q cooldown, got {q_status_p2}"
+
+        # Walk, jump, shoot, and capture live 3D Arena with deployed Emerald Barrier Wall & Ability Dock!
+        page1.keyboard.down("KeyD")
+        page1.wait_for_timeout(250)
         page1.keyboard.press("Space")
         page1.wait_for_timeout(200)
-        page1.keyboard.up("KeyW")
+        page1.keyboard.up("KeyD")
         page1.keyboard.press("KeyF")
         page1.wait_for_timeout(300)
         ammo_after = int(page1.inner_text("#hud-ammo-value").strip())
-        assert ammo_after == ammo_before - 1, f"Expected ammo {ammo_before - 1}, got {ammo_after}"
+        assert ammo_after < ammo_before, f"Expected ammo to decrement below {ammo_before}, got {ammo_after}"
         page1.screenshot(animations="disabled", path=f"{SCREENSHOT_DIR}/05_arena_combat.png")
 
         # Reload with R
         page1.keyboard.press("KeyR")
-        page1.wait_for_timeout(2500)
+        page1.wait_for_timeout(2700)
         ammo_reloaded = int(page1.inner_text("#hud-ammo-value").strip())
         assert ammo_reloaded == ammo_before, f"Expected reloaded ammo {ammo_before}, got {ammo_reloaded}"
 
@@ -181,7 +191,7 @@ def run_e2e():
         assert "NeonHost" in sb_text and "CyberGuest" in sb_text and "100" in sb_text
         page1.screenshot(animations="disabled", path=f"{SCREENSHOT_DIR}/06_live_scoreboard.png")
         page1.keyboard.up("Tab")
-        print(f"      -> Movement, Shooting ({ammo_before}->{ammo_after}->{ammo_reloaded}), and Live Scoreboard verified!")
+        print(f"      -> Skills (P1 Barrier CD={c_status}, P2 Recon CD={q_status_p2}), Shooting ({ammo_before}->{ammo_after}->{ammo_reloaded}), and Scoreboard verified!", flush=True)
 
         print("[8/9] Testing REAL Browser Reload + Reconnect preserving score & weapon...", flush=True)
         stored_before = page1.evaluate("() => sessionStorage.getItem('math_rivals_3d_session')")

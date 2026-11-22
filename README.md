@@ -14,26 +14,38 @@
   - แฟกทอเรียลและการแก้สมการแฟกทอเรียล
   - วิธีเรียงสับเปลี่ยนเชิงเส้น ($n!$, $P_{n,r}$, เงื่อนไขยืนติดกัน, ของซ้ำบางส่วน และสูตรที่ 5)
   - การจัดหมู่ ($C_{n,r}$, ผลรวมสัมประสิทธิ์ทวินาม $2^n$, สมการการจัดหมู่ และโจทย์ปัญหาการจัดหมู่)
-- **4 Distinct Random Sci-Fi Weapons**:
+- **8 Diverse Random Sci-Fi Weapons**:
   | Weapon | Role | Damage / Headshot | Fire Rate | Mag | Reload | Special |
   | --- | --- | --- | --- | --- | --- | --- |
-  | **Pulse Pistol** | Precision Sidearm | 28 / 52 | 260 ms | 12 | 1.1s | รีโหลดไวสุด คล่องตัวสูง |
-  | **Vector AR-42** | Full-Auto Rifle | 20 / 38 | 115 ms | 28 | 1.65s | กดค้างยิงรัวต่อเนื่อง |
+  | **Pulse Pistol** | Precision Sidearm | 28 / 54 | 240 ms | 12 | 1.05s | รีโหลดไวสุด คล่องตัวสูง |
+  | **Sheriff-X Magnum** | Heavy Hand Cannon | 55 / 110 | 470 ms | 6 | 1.55s | ลูกโม่แรงสูง นัดเดียวเข้าหัวดับ |
+  | **Spectre-9 SMG** | Run & Gun SMG | 15 / 28 | 78 ms | 36 | 1.45s | ยิงรัวสุดขีด 36 นัดสายบุก |
+  | **Vector AR-42** | Full-Auto Rifle | 22 / 44 | 115 ms | 28 | 1.65s | ไรเฟิลจู่โจมสมดุลทุกระยะ |
+  | **Bulldog-3X Pulse** | 3-Round Burst | 20×3 / 35×3 | 390 ms | 24 | 1.75s | ยิงชุด 3 นัดซ้อนแม่นยำ |
   | **Nova-8 Scatter** | Plasma Shotgun | 18×6 / 28×6 | 740 ms | 6 | 1.95s | กระสุนพลาสมา 6 นัดระยะประชิด |
-  | **Hyperion Rail** | Railgun Sniper | 75 / 120 | 1,120 ms | 4 | 2.15s | ยิงหัว 1 นัดดับ + คลิกขวาซูมสโคป |
+  | **Odin-V Gatling** | Heavy Plasma LMG | 18 / 32 | 92 ms | 55 | 2.40s | ปืนกลหนัก 55 นัดกราดยิงกดดัน |
+  | **Hyperion Rail** | Railgun Sniper | 85 / 140 | 1,120 ms | 5 | 2.15s | ยิงหัว 1 นัดดับ + คลิกขวาซูมสโคป |
+- **4 Valorant-Style Tactical Agents & 12 Server-Authoritative Skills (`[Q]` `[C]` `[X]`)**:
+  - ตอบคณิตถูก **+1 แต้มอัลติ** และ Kill **+1 แต้มอัลติ** (สะสมครบ **4 แต้ม** กด `[X]` ใช้อัลติ!)
+  | Agent | Role | `[Q]` Tactical Skill | `[C]` Utility Skill | `[X]` Ultimate (4 pts) |
+  | --- | --- | --- | --- | --- |
+  | **VORTEX** | Duelist | **Tailwind Dash** (พุ่งตัวความเร็วสูง) | **Flashpulse Orb** (แฟลชศัตรูตาพร่า 2.2 วิ) | **Overdrive Surge** (วิ่งไว+ยิงเร็ว 35%+ดาเมจ 25%) |
+  | **AEGIS** | Sentinel | **Nano Heal** (+45 HP ทันที) | **Barrier Wall** (กำแพง 3D กันกระสุนจริง 12 วิ) | **Titan Shield** (เกราะ 175 HP นาน 10 วิ) |
+  | **PHANTOM** | Controller | **Shadow Smoke** (โดมควัน 3D บังสายตา 10 วิ) | **Phase Blink** (วาร์ปทะลุมิติ 10 เมตร) | **Orbital Strike** (ลำแสงไอออนจากฟ้า 90 AOE) |
+  | **PULSE** | Initiator | **Recon Sonar** (สแกนเห็นศัตรูทะลุกำแพง 5.5 วิ) | **Shock Cluster** (ระเบิดพลาสมา 55 AOE) | **Hyper Barrage** (จรวดพลาสมา 120 AOE) |
 - **Scoring & Anti-Cheat (Server-Authoritative)**:
-  - ตอบถูก: **+100 คะแนน** + สุ่มอาวุธทันทีพร้อม Animation
+  - ตอบถูก: **+100 คะแนน** + สุ่มอาวุธจาก 8 กระบอก + **+1 Ultimate Charge**
   - ตอบผิด: **+0 คะแนน** (ไม่ได้รับอาวุธ พร้อมแสดงวิธีทำ)
-  - Elimination (Kill): **+150 คะแนน**
+  - Elimination (Kill): **+150 คะแนน** + **+1 Ultimate Charge**
   - Headshot Bonus: **+50 คะแนน** (รวม **+200 คะแนน** เมื่อยิงหัวดับ)
   - ป้องกันการตอบคำถามเดิมซ้ำเพื่อฟาร์มคะแนน (Server-tracked `attemptedQuestionIds` และ DB `UNIQUE` constraint)
-  - ตรวจสอบ Hit Detection, Fire Rate, Host Authorization และ Session Token ฝั่งเซิร์ฟเวอร์ทั้งหมด
+  - ตรวจสอบ Hit Detection, กำแพงสกิลกันกระสุน, Skill Cooldown, Ultimate Charge, Fire Rate และ Session Token ฝั่งเซิร์ฟเวอร์ทั้งหมด
 - **Real-time Multiplayer (2–8 Players)**:
   - Create Room / Join Room ผ่าน **Room Code 6 หลัก**
-  - Lobby แยกทีม Blue vs Red พร้อมปุ่ม Switch Team, Ready Status และ Host Start
+  - Lobby แยกทีม Blue vs Red พร้อม **Agent Selector**, Switch Team, Ready Status และ Host Start
   - Synchronized 3-2-1 Countdown และ 90-second Real-time Timer
   - รองรับ Auto-Reconnect (คืนค่าคะแนนและอาวุธเดิมเมื่อรีเฟรชหน้า) และการจัดการ Disconnect อย่างปลอดภัย
-  - รองรับ 2 โหมด Backend: **Authoritative WebSocket Server (`server/index.ts`)** (แนะนำสำหรับความแม่นยำสูงสุด) และ **Supabase Realtime + PostgreSQL RPCs (`supabase/schema.sql`)**
+  - รองรับ 2 โหมด Backend: **Authoritative WebSocket Server (`server/index.ts`)** และ **Supabase Realtime + PostgreSQL RPCs (`supabase/schema.sql`)**
 
 ---
 
@@ -45,9 +57,11 @@
 | `Shift` | วิ่งเร็ว (Sprint) |
 | `Space` | กระโดด (Jump / Jump Pads) |
 | `Mouse` | เล็งเป้าหมาย (คลิกที่สนามเพื่อล็อกเมาส์) |
-| `Left Click` (หรือ `F`) | ยิงอาวุธ (กดค้างสำหรับ Vector AR-42 Rifle) |
+| `Left Click` (หรือ `F`) | ยิงอาวุธ (กดค้างสำหรับปืน Full-Auto: SMG / Rifle / LMG) |
 | `Right Click` | ซูมเล็ง (ADS / Sniper Scope) |
 | `R` | รีโหลดกระสุน |
+| `Q` / `C` | ใช้สกิล Tactical / Utility ของ Agent |
+| `X` | ใช้สกิล **Ultimate** (เมื่อสะสมครบ 4 แต้มจากคณิต/Kill) |
 | `E` | เปิด/ปิดหน้าต่างตอบโจทย์คณิตศาสตร์ (กดปุ่ม `1`–`4` ตอบด่วนได้ทันที) |
 | `Tab` (กดค้าง) | ดู Live Scoreboard เต็มจอ |
 | `ESC` | เปิดเมนู Pause / ปรับ Mouse Sensitivity / เปิด-ปิดเสียง |

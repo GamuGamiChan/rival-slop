@@ -1,5 +1,6 @@
-import { ArrowLeftRight, Check, Copy, Crown, LogOut, Play, Shield, Users } from 'lucide-react'
+import { ArrowLeftRight, Check, Copy, Crown, LogOut, Play, Shield, Sparkles, Users } from 'lucide-react'
 import { useState } from 'react'
+import { AGENT_IDS, AGENTS } from '../../shared/agents.ts'
 import { MATCH_CONFIG, type PlayerPublicState } from '../../shared/types.ts'
 import { multiplayerClient } from '../multiplayer/client.ts'
 import { selectMyPlayer, useGameStore } from '../store/useGameStore.ts'
@@ -22,16 +23,16 @@ function TeamRoster({
   const isBlue = team === 'blue'
   return (
     <div
-      className={`hud-panel hud-cut border p-5 flex flex-col justify-between space-y-4 ${
+      className={`hud-panel hud-cut border p-4 flex flex-col justify-between space-y-3 ${
         isBlue ? 'border-cyan-500/45' : 'border-rose-500/45'
       }`}
     >
-      <div className="space-y-3">
-        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-          <div className="flex items-center gap-2.5">
-            <Shield className={`w-5 h-5 ${isBlue ? 'text-cyan-400' : 'text-rose-500'}`} />
+      <div className="space-y-2.5">
+        <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+          <div className="flex items-center gap-2">
+            <Shield className={`w-4 h-4 ${isBlue ? 'text-cyan-400' : 'text-rose-500'}`} />
             <h3
-              className={`font-display text-lg font-extrabold tracking-wider uppercase ${
+              className={`font-display text-base font-extrabold tracking-wider uppercase ${
                 isBlue ? 'text-cyan-300' : 'text-rose-400'
               }`}
             >
@@ -43,51 +44,64 @@ function TeamRoster({
           </span>
         </div>
 
-        <div className="space-y-2 min-h-[210px]">
-          {players.map((p) => (
-            <div
-              key={p.id}
-              className={`flex items-center justify-between px-3.5 py-2.5 border ${
-                p.id === myId
-                  ? isBlue
-                    ? 'bg-cyan-950/55 border-cyan-400/70'
-                    : 'bg-rose-950/55 border-rose-400/70'
-                  : 'bg-slate-950/75 border-slate-800'
-              }`}
-            >
-              <div className="flex items-center gap-2.5 min-w-0">
-                <span
-                  className={`h-2.5 w-2.5 rounded-full shrink-0 ${
-                    p.connected ? 'bg-emerald-400' : 'bg-slate-600'
-                  }`}
-                />
-                <span className="font-semibold text-white truncate">{p.name}</span>
-                {p.id === myId && (
-                  <span className="text-[10px] font-display px-1.5 py-0.5 bg-slate-800 text-slate-300 uppercase">
-                    YOU
-                  </span>
-                )}
-                {p.isHost && (
-                  <span className="inline-flex items-center gap-1 text-[10px] font-display px-1.5 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-500/40 uppercase">
-                    <Crown className="w-3 h-3" /> HOST
-                  </span>
-                )}
-              </div>
-
-              <span
-                className={`text-[11px] font-display font-bold tracking-wider uppercase px-2.5 py-1 ${
-                  p.ready
-                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                    : 'bg-slate-900 text-slate-500 border border-slate-800'
+        <div className="space-y-1.5 min-h-[140px]">
+          {players.map((p) => {
+            const agent = AGENTS[p.agent]
+            return (
+              <div
+                key={p.id}
+                className={`flex items-center justify-between px-3 py-2 border ${
+                  p.id === myId
+                    ? isBlue
+                      ? 'bg-cyan-950/55 border-cyan-400/70'
+                      : 'bg-rose-950/55 border-rose-400/70'
+                    : 'bg-slate-950/75 border-slate-800'
                 }`}
               >
-                {p.ready ? 'READY' : 'WAITING'}
-              </span>
-            </div>
-          ))}
+                <div className="flex items-center gap-2 min-w-0">
+                  <span
+                    className={`h-2 w-2 rounded-full shrink-0 ${
+                      p.connected ? 'bg-emerald-400' : 'bg-slate-600'
+                    }`}
+                  />
+                  <span className="font-semibold text-sm text-white truncate">{p.name}</span>
+                  <span
+                    className="text-[10px] font-display font-bold px-1.5 py-0.5 uppercase border"
+                    style={{
+                      color: agent.accentColor,
+                      borderColor: `${agent.accentColor}66`,
+                      backgroundColor: `${agent.accentColor}15`,
+                    }}
+                  >
+                    {agent.name}
+                  </span>
+                  {p.id === myId && (
+                    <span className="text-[10px] font-display px-1.5 py-0.5 bg-slate-800 text-slate-300 uppercase">
+                      YOU
+                    </span>
+                  )}
+                  {p.isHost && (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-display px-1.5 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-500/40 uppercase">
+                      <Crown className="w-2.5 h-2.5" /> HOST
+                    </span>
+                  )}
+                </div>
+
+                <span
+                  className={`text-[10px] font-display font-bold tracking-wider uppercase px-2 py-0.5 ${
+                    p.ready
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                      : 'bg-slate-900 text-slate-500 border border-slate-800'
+                  }`}
+                >
+                  {p.ready ? 'READY' : 'WAITING'}
+                </span>
+              </div>
+            )
+          })}
 
           {players.length === 0 && (
-            <div className="h-[180px] flex items-center justify-center text-sm font-thai text-slate-500 border border-dashed border-slate-800">
+            <div className="h-[118px] flex items-center justify-center text-sm font-thai text-slate-500 border border-dashed border-slate-800">
               รอผู้เล่นเข้าร่วมทีม...
             </div>
           )}
@@ -99,7 +113,7 @@ function TeamRoster({
           id={`btn-switch-${team}`}
           type="button"
           onClick={onSwitch}
-          className={`w-full py-2.5 text-xs font-display font-bold tracking-wider uppercase border flex items-center justify-center gap-2 transition cursor-pointer ${
+          className={`w-full py-2 text-xs font-display font-bold tracking-wider uppercase border flex items-center justify-center gap-2 transition cursor-pointer ${
             isBlue
               ? 'border-cyan-500/50 text-cyan-300 hover:bg-cyan-500/15'
               : 'border-rose-500/50 text-rose-300 hover:bg-rose-500/15'
@@ -125,6 +139,7 @@ export function LobbyScreen() {
   const redPlayers = room.players.filter((p) => p.team === 'red')
   const connectedCount = room.players.filter((p) => p.connected).length
   const canStart = me.isHost && connectedCount >= MATCH_CONFIG.MIN_PLAYERS
+  const selectedAgent = AGENTS[me.agent]
 
   const copyCode = async () => {
     try {
@@ -132,17 +147,17 @@ export function LobbyScreen() {
       setCopied(true)
       window.setTimeout(() => setCopied(false), 1800)
     } catch {
-      // Clipboard fallback ignored
+      // Ignore clipboard failure
     }
   }
 
   return (
-    <div className="relative z-10 flex flex-col justify-between h-full w-full p-6 md:p-8 bg-[#040812]/80 overflow-y-auto">
+    <div className="relative z-10 flex flex-col justify-between h-full w-full p-5 md:p-7 bg-[#040812]/82 overflow-y-auto gap-4">
       {/* Header with Room Code */}
-      <header className="max-w-5xl w-full mx-auto flex flex-wrap items-center justify-between gap-4">
+      <header className="max-w-6xl w-full mx-auto flex flex-wrap items-center justify-between gap-4">
         <div>
           <div className="font-display text-xs tracking-[0.24em] text-cyan-400 uppercase">
-            MULTIPLAYER MATCH LOBBY
+            AGENT SELECT &amp; MATCH LOBBY
           </div>
           <h2 className="font-display text-2xl sm:text-3xl font-black text-white">
             MATH DEATHMATCH • 90 SEC
@@ -184,15 +199,15 @@ export function LobbyScreen() {
         </div>
       </header>
 
-      {/* Blue vs Red Roster */}
-      <main className="max-w-5xl w-full mx-auto my-6 space-y-4">
+      <main className="max-w-6xl w-full mx-auto space-y-4">
         {errorMessage && (
           <div className="px-4 py-3 bg-rose-950/85 border border-rose-500/70 text-rose-200 text-sm font-thai">
             {errorMessage}
           </div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        {/* Blue vs Red Teams */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <TeamRoster
             title="BLUE TEAM"
             team="blue"
@@ -210,10 +225,97 @@ export function LobbyScreen() {
             onSwitch={() => multiplayerClient.switchTeam('red')}
           />
         </div>
+
+        {/* Valorant-Style Tactical Agent Picker */}
+        <section className="hud-panel hud-cut border border-slate-700/80 p-4 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-amber-400" />
+              <span className="font-display text-xs font-bold tracking-[0.22em] text-white uppercase">
+                SELECT TACTICAL AGENT (Q / C / X SKILLS)
+              </span>
+            </div>
+            <span className="font-thai text-xs text-slate-400">
+              ตอบคณิตถูก +1 แต้มอัลติ • Kill +1 แต้มอัลติ (ครบ 4 แต้มกด [X] ใช้อัลติ!)
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+            {AGENT_IDS.map((aid) => {
+              const a = AGENTS[aid]
+              const active = me.agent === aid
+              return (
+                <button
+                  key={aid}
+                  id={`btn-agent-${aid}`}
+                  type="button"
+                  onClick={() => multiplayerClient.selectAgent(aid)}
+                  className={`p-3 text-left border transition hud-cut-sm cursor-pointer ${
+                    active
+                      ? 'bg-slate-900/95'
+                      : 'bg-slate-950/75 border-slate-800 hover:border-slate-600'
+                  }`}
+                  style={
+                    active
+                      ? {
+                          borderColor: a.accentColor,
+                          boxShadow: `0 0 22px ${a.accentColor}30`,
+                        }
+                      : undefined
+                  }
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-display text-sm font-black text-white">{a.name}</span>
+                    <span
+                      className="text-[10px] font-display font-bold px-1.5 py-0.5 uppercase text-slate-950"
+                      style={{ backgroundColor: a.accentColor }}
+                    >
+                      {a.role}
+                    </span>
+                  </div>
+                  <div className="font-thai text-[11px] text-slate-400 mt-1">{a.roleThai}</div>
+                </button>
+              )
+            })}
+          </div>
+
+          {/* Active Agent 3-Skill Preview */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 pt-1">
+            {(['Q', 'C', 'X'] as const).map((slot) => {
+              const sk = selectedAgent.skills[slot]
+              return (
+                <div
+                  key={slot}
+                  className="p-2.5 bg-slate-950/85 border border-slate-800 flex items-start gap-2.5"
+                >
+                  <span
+                    className="h-7 w-7 shrink-0 flex items-center justify-center font-display text-xs font-black text-slate-950"
+                    style={{ backgroundColor: sk.accentColor }}
+                  >
+                    {slot}
+                  </span>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-display text-xs font-bold text-white truncate">
+                        {sk.name}
+                      </span>
+                      <span className="text-[10px] font-mono text-slate-400 shrink-0">
+                        {slot === 'X' ? `${sk.ultCost} PTS` : `${sk.cooldownSec}s`}
+                      </span>
+                    </div>
+                    <div className="font-thai text-[11px] text-slate-300 leading-snug mt-0.5">
+                      {sk.thaiDesc}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </section>
       </main>
 
       {/* Bottom Action Bar */}
-      <footer className="max-w-5xl w-full mx-auto hud-panel hud-cut border border-slate-700/75 p-4 flex flex-wrap items-center justify-between gap-4">
+      <footer className="max-w-6xl w-full mx-auto hud-panel hud-cut border border-slate-700/75 p-4 flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3 text-sm">
           <Users className="w-4 h-4 text-cyan-400" />
           <span className="font-display font-bold text-white" id="lobby-player-count">
@@ -222,7 +324,7 @@ export function LobbyScreen() {
           <span className="text-slate-400 font-thai text-xs">
             {connectedCount < MATCH_CONFIG.MIN_PLAYERS
               ? `แชร์รหัส ${room.roomCode} ให้เพื่อนเข้าร่วม (ต้องมีอย่างน้อย 2 คน)`
-              : 'พร้อมเริ่มการแข่งขันแล้ว! กด [E] ในสนามเพื่อตอบคณิตสุ่มอาวุธ'}
+              : `Agent: ${selectedAgent.name} (${selectedAgent.role}) • พร้อมเริ่มแข่ง!`}
           </span>
         </div>
 

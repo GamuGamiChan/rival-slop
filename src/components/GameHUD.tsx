@@ -1,5 +1,7 @@
-import { Brain, Crosshair, Flame, Heart, Skull, Target } from 'lucide-react'
+import { Brain, Crosshair, Eye, Flame, Heart, Shield, Skull, Target, Zap } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { AGENTS } from '../../shared/agents.ts'
+import type { SkillSlot } from '../../shared/types.ts'
 import { WEAPONS } from '../../shared/weapons.ts'
 import { soundEngine } from '../game/sound.ts'
 import { multiplayerClient } from '../multiplayer/client.ts'
@@ -22,6 +24,7 @@ export function GameHUD() {
   const isAdsZoom = useGameStore((s) => s.isAdsZoom)
   const hitMarker = useGameStore((s) => s.hitMarker)
   const lastDamageTaken = useGameStore((s) => s.lastDamageTaken)
+  const lastSkillBanner = useGameStore((s) => s.lastSkillBanner)
   const recentKills = useGameStore((s) => s.recentKills)
   const connectionStatus = useGameStore((s) => s.connectionStatus)
 
@@ -34,7 +37,6 @@ export function GameHUD() {
     return () => window.clearInterval(id)
   }, [])
 
-  // Countdown audio cues
   useEffect(() => {
     if (!room) return
     const serverNow = nowTick + clockOffsetMs
@@ -71,6 +73,7 @@ export function GameHUD() {
     .filter((s) => s.team === 'red')
     .reduce((acc, s) => acc + s.totalScore, 0)
 
+  const agentSpec = AGENTS[me.agent]
   const weaponSpec = me.weapon ? WEAPONS[me.weapon] : null
   const isReloading = Boolean(me.reloadingUntil && serverNow < me.reloadingUntil)
   const reloadProgress =
@@ -78,8 +81,29 @@ export function GameHUD() {
       ? Math.max(0, Math.min(100, 100 - ((me.reloadingUntil - serverNow) / weaponSpec.reloadMs) * 100))
       : 0
 
+  const qCdSec = Math.max(0, Math.ceil((me.skillQReadyAt - serverNow) / 1000))
+  const cCdSec = Math.max(0, Math.ceil((me.skillCReadyAt - serverNow) / 1000))
+  const ultReady = me.ultPoints >= me.ultMax
+
+  const overdriveLeft =
+    me.overdriveUntil && serverNow < me.overdriveUntil
+      ? ((me.overdriveUntil - serverNow) / 1000).toFixed(1)
+      : null
+  const overshieldLeft =
+    me.overshieldUntil && serverNow < me.overshieldUntil
+      ? ((me.overshieldUntil - serverNow) / 1000).toFixed(1)
+      : null
+  const blindOpacity =
+    me.blindedUntil && serverNow < me.blindedUntil
+      ? Math.min(0.95, (me.blindedUntil - serverNow) / 1600)
+      : 0
+  const anyEnemyRevealed = room.players.some(
+    (p) => p.team !== me.team && p.alive && p.revealedUntil && serverNow < p.revealedUntil,
+  )
+
   const showHitMarker = hitMarker && nowTick - hitMarker.timestamp < 320
   const showDamageFlash = lastDamageTaken && nowTick - lastDamageTaken.timestamp < 380
+  const showSkillToast = lastSkillBanner && nowTick - lastSkillBanner.receivedAt < 2200
   const respawnSec =
     !me.alive && me.respawnAt ? Math.max(0.1, (me.respawnAt - serverNow) / 1000).toFixed(1) : null
   const lowTime = room.phase === 'playing' && timeLeftMs <= 15000
@@ -89,14 +113,36 @@ export function GameHUD() {
     multiplayerClient.requestQuestion()
   }
 
+  const triggerSkillFromHud = (slot: SkillSlot) => {
+    window.dispatchEvent(new CustomEvent('math-rivals-cast-skill', { detail: slot }))
+  }
+
   return (
     <div className="pointer-events-none fixed inset-0 z-20 select-none">
+      {/* Vortex Flashpulse Blind Overlay */}
+      {blindOpacity > 0 && (
+        <div
+          id="hud-blind-overlay"
+          className="fixed inset-0 z-40 flex items-center justify-center bg-cyan-50 transition-opacity duration-100"
+          style={{ opacity: blindOpacity }}
+        >
+          <span className="font-display text-3xl font-black tracking-[0.35em] text-cyan-950/60 uppercase">
+            BLINDED
+          </span>
+        </div>
+      )}
+
       {/* Damage Vignette Flash */}
       {showDamageFlash && (
         <div
           key={lastDamageTaken.timestamp}
           className="animate-damage-flash fixed inset-0 border-[12px] border-rose-500/80 shadow-[inset_0_0_90px_rgba(255,46,91,0.7)]"
         />
+      )}
+
+      {/* Overdrive Aura Edge Glow */}
+      {overdriveLeft && (
+        <div className="fixed inset-0 border-4 border-cyan-400/50 shadow-[inset_0_0_70px_rgba(0,229,255,0.28)]" />
       )}
 
       {/* Sniper Railgun Full-Scope Overlay */}
@@ -121,40 +167,72 @@ export function GameHUD() {
       )}
 
       {/* TOP CENTER — Synchronized 90s Timer + Team Scores */}
-      <div className="fixed top-4 left-1/2 -translate-x-1/2 flex items-center gap-2">
-        <div className="hud-panel hud-cut-sm border border-cyan-500/50 px-4 py-1.5 text-right min-w-[100px]">
-          <div className="text-[9px] font-display tracking-[0.2em] text-cyan-400 uppercase">BLUE</div>
-          <div className="font-display text-xl font-black text-white">{blueTotal}</div>
-        </div>
-
-        <div
-          className={`hud-panel hud-cut px-6 py-2 border-2 text-center min-w-[136px] ${
-            lowTime ? 'border-rose-500 animate-pulse' : 'border-slate-600/80'
-          }`}
-        >
-          <div className="text-[9px] font-display tracking-[0.24em] text-slate-400 uppercase">
-            {room.phase === 'countdown' ? 'STARTING' : 'MATCH TIME'}
+      <div className="fixed top-4 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2">
+        <div className="flex items-center gap-2">
+          <div className="hud-panel hud-cut-sm border border-cyan-500/50 px-4 py-1.5 text-right min-w-[96px]">
+            <div className="text-[9px] font-display tracking-[0.2em] text-cyan-400 uppercase">BLUE</div>
+            <div className="font-display text-xl font-black text-white">{blueTotal}</div>
           </div>
+
           <div
-            id="hud-match-timer"
-            className={`font-display text-3xl font-black tracking-wider ${
-              lowTime ? 'text-rose-400' : 'text-white'
+            className={`hud-panel hud-cut px-6 py-2 border-2 text-center min-w-[134px] ${
+              lowTime ? 'border-rose-500 animate-pulse' : 'border-slate-600/80'
             }`}
           >
-            {formatTimer(timeLeftMs)}
+            <div className="text-[9px] font-display tracking-[0.24em] text-slate-400 uppercase">
+              {room.phase === 'countdown' ? 'STARTING' : 'MATCH TIME'}
+            </div>
+            <div
+              id="hud-match-timer"
+              className={`font-display text-3xl font-black tracking-wider ${
+                lowTime ? 'text-rose-400' : 'text-white'
+              }`}
+            >
+              {formatTimer(timeLeftMs)}
+            </div>
+          </div>
+
+          <div className="hud-panel hud-cut-sm border border-rose-500/50 px-4 py-1.5 text-left min-w-[96px]">
+            <div className="text-[9px] font-display tracking-[0.2em] text-rose-400 uppercase">RED</div>
+            <div className="font-display text-xl font-black text-white">{redTotal}</div>
           </div>
         </div>
 
-        <div className="hud-panel hud-cut-sm border border-rose-500/50 px-4 py-1.5 text-left min-w-[100px]">
-          <div className="text-[9px] font-display tracking-[0.2em] text-rose-400 uppercase">RED</div>
-          <div className="font-display text-xl font-black text-white">{redTotal}</div>
+        {/* Active Buffs & Skill Cast Banner */}
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          {overdriveLeft && (
+            <span className="px-2.5 py-0.5 bg-cyan-500/25 border border-cyan-400 text-cyan-200 font-display text-[11px] font-bold flex items-center gap-1">
+              <Zap className="w-3.5 h-3.5" /> OVERDRIVE {overdriveLeft}s
+            </span>
+          )}
+          {overshieldLeft && (
+            <span className="px-2.5 py-0.5 bg-emerald-500/25 border border-emerald-400 text-emerald-200 font-display text-[11px] font-bold flex items-center gap-1">
+              <Shield className="w-3.5 h-3.5" /> TITAN SHIELD {overshieldLeft}s
+            </span>
+          )}
+          {anyEnemyRevealed && (
+            <span className="px-2.5 py-0.5 bg-orange-500/25 border border-orange-400 text-orange-200 font-display text-[11px] font-bold flex items-center gap-1">
+              <Eye className="w-3.5 h-3.5" /> ENEMY REVEALED
+            </span>
+          )}
+          {showSkillToast && (
+            <span
+              id="hud-skill-toast"
+              className="px-3 py-0.5 bg-slate-950/85 border border-slate-600 text-xs font-display tracking-wider text-white uppercase"
+            >
+              <strong style={{ color: AGENTS[lastSkillBanner.agent].accentColor }}>
+                {lastSkillBanner.playerName}
+              </strong>{' '}
+              USED {lastSkillBanner.skillName}
+            </span>
+          )}
         </div>
       </div>
 
       {/* TOP LEFT — Live Kill Feed */}
       <div className="fixed top-4 left-4 space-y-1.5 max-w-xs">
         <div className="text-[10px] font-display tracking-[0.22em] text-slate-400 uppercase px-1">
-          ROOM {room.roomCode}
+          ROOM {room.roomCode} • {agentSpec.name}
         </div>
         {recentKills.slice(0, 4).map((k) => (
           <div
@@ -164,8 +242,8 @@ export function GameHUD() {
             <span className={k.killerTeam === 'blue' ? 'text-cyan-300 font-bold' : 'text-rose-400 font-bold'}>
               {k.killerName}
             </span>
-            <span className="text-[10px] font-display text-slate-400 uppercase px-1">
-              [{WEAPONS[k.weapon].name.split(' ')[0]}]
+            <span className="text-[10px] font-display text-amber-300 uppercase px-1">
+              [{k.weapon === 'skill' ? (k.skillLabel ?? 'SKILL') : WEAPONS[k.weapon].name.split(' ')[0]}]
             </span>
             {k.headshot && <Target className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
             <span className={k.victimTeam === 'blue' ? 'text-cyan-300' : 'text-rose-400'}>
@@ -176,7 +254,7 @@ export function GameHUD() {
         ))}
       </div>
 
-      {/* TOP RIGHT — Compact Live Leaderboard (Screenshot 2 inspired) */}
+      {/* TOP RIGHT — Compact Live Leaderboard */}
       <div className="fixed top-4 right-4 w-56 space-y-1 hidden sm:block">
         <div className="flex items-center justify-between px-2 text-[10px] font-display tracking-[0.2em] text-slate-400 uppercase">
           <span>LIVE RANKING</span>
@@ -205,7 +283,7 @@ export function GameHUD() {
       {room.phase === 'countdown' && countdownSec !== null && (
         <div className="fixed inset-0 flex flex-col items-center justify-center bg-slate-950/35">
           <div className="font-display text-xs tracking-[0.35em] text-cyan-300 uppercase mb-2">
-            GET READY • PREPARE TO SOLVE &amp; FIGHT
+            AGENT {agentSpec.name} DEPLOYING • SOLVE &amp; FIGHT
           </div>
           <div
             id="hud-countdown-number"
@@ -214,7 +292,8 @@ export function GameHUD() {
             {countdownSec}
           </div>
           <div className="mt-4 px-4 py-2 bg-slate-950/85 border border-cyan-500/50 font-thai text-sm text-slate-200">
-            เริ่มเกมแล้วกด <span className="font-display text-cyan-300 font-bold">[E]</span> ตอบคณิตศาสตร์เพื่อสุ่มอาวุธทันที!
+            กด <span className="font-display text-cyan-300 font-bold">[E]</span> ตอบคณิตสุ่มปืน 8 แบบ • กด{' '}
+            <span className="font-display text-amber-300 font-bold">[Q] [C] [X]</span> ใช้สกิล Agent!
           </div>
         </div>
       )}
@@ -236,7 +315,6 @@ export function GameHUD() {
             </div>
           )}
 
-          {/* Animated Hitmarker X */}
           {showHitMarker && (
             <div
               key={hitMarker.id}
@@ -275,9 +353,9 @@ export function GameHUD() {
         </div>
       )}
 
-      {/* CENTER PROMPT — Unarmed Math CTA or Click-to-Aim */}
+      {/* CENTER PROMPT — Unarmed Math CTA */}
       {room.phase === 'playing' && me.alive && !mathModalOpen && !pauseOpen && (
-        <div className="fixed bottom-28 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2">
+        <div className="fixed bottom-32 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2">
           {!me.weapon && (
             <button
               id="btn-hud-open-math"
@@ -286,19 +364,19 @@ export function GameHUD() {
               className="pointer-events-auto px-6 py-3 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-display font-black text-sm tracking-wider uppercase hud-cut-sm flex items-center gap-2.5 shadow-[0_0_32px_rgba(0,229,255,0.65)] ring-2 ring-cyan-300/60 transition cursor-pointer"
             >
               <Brain className="w-5 h-5" />
-              กด [E] ตอบโจทย์คณิต เพื่อสุ่มอาวุธ (+100 PTS)
+              กด [E] ตอบโจทย์คณิต เพื่อสุ่มปืน (+100 PTS +1 ULT)
             </button>
           )}
           {me.weapon && !pointerLocked && (
-            <div className="px-4 py-1.5 bg-slate-950/85 border border-cyan-500/50 text-xs font-display tracking-wider text-cyan-200 uppercase">
-              CLICK ARENA TO LOCK MOUSE AIM • PRESS [E] FOR MATH BONUS
+            <div className="px-4 py-1 bg-slate-950/80 border border-cyan-500/40 text-[11px] font-display tracking-wider text-cyan-200 uppercase">
+              CLICK ARENA TO LOCK AIM • [Q][C][X] SKILLS • [E] MATH
             </div>
           )}
         </div>
       )}
 
       {/* BOTTOM LEFT — HP & Personal Stats */}
-      <div className="fixed bottom-5 left-5 hud-panel hud-cut border border-slate-700/80 p-4 min-w-[235px] space-y-2.5">
+      <div className="fixed bottom-4 left-4 hud-panel hud-cut border border-slate-700/80 p-3.5 min-w-[220px] space-y-2">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Heart className="w-4 h-4 text-rose-500 fill-rose-500" />
@@ -312,15 +390,20 @@ export function GameHUD() {
               me.team === 'blue' ? 'bg-cyan-500/20 text-cyan-300' : 'bg-rose-500/20 text-rose-300'
             }`}
           >
-            {me.team} TEAM
+            {me.team}
           </span>
         </div>
 
-        {/* Segmented HP Bar */}
         <div className="h-2.5 w-full bg-slate-950 border border-slate-800 overflow-hidden">
           <div
             className={`h-full transition-all duration-150 ${
-              me.hp > 50 ? 'bg-cyan-400' : me.hp > 25 ? 'bg-amber-400' : 'bg-rose-500'
+              me.maxHp > 100
+                ? 'bg-emerald-400'
+                : me.hp > 50
+                  ? 'bg-cyan-400'
+                  : me.hp > 25
+                    ? 'bg-amber-400'
+                    : 'bg-rose-500'
             }`}
             style={{ width: `${Math.max(0, Math.min(100, (me.hp / me.maxHp) * 100))}%` }}
           />
@@ -330,29 +413,128 @@ export function GameHUD() {
           <span className="text-slate-400">
             SCORE <strong className="font-display text-white ml-1" id="hud-my-score">{me.totalScore}</strong>
           </span>
-          <span className="text-emerald-400 font-semibold">
-            ✓ {me.correctAnswers}
-          </span>
+          <span className="text-emerald-400 font-semibold">✓ {me.correctAnswers}</span>
           <span className="text-cyan-300 font-semibold">
             K/D {me.kills}/{me.deaths}
           </span>
         </div>
       </div>
 
+      {/* BOTTOM CENTER — VALORANT-STYLE AGENT ABILITY DOCK (Q / C / X) */}
+      {room.phase === 'playing' && (
+        <div
+          id="hud-ability-dock"
+          className="pointer-events-auto fixed bottom-4 left-1/2 -translate-x-1/2 flex items-end gap-2"
+        >
+          {/* [Q] Skill */}
+          <button
+            id="btn-hud-skill-Q"
+            type="button"
+            disabled={!me.alive || qCdSec > 0}
+            onClick={() => triggerSkillFromHud('Q')}
+            className={`hud-panel hud-cut-sm border px-3 py-2 min-w-[106px] text-left transition cursor-pointer disabled:cursor-not-allowed ${
+              qCdSec === 0
+                ? 'border-slate-500 hover:border-cyan-300'
+                : 'border-slate-800 opacity-65'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span
+                className="px-1.5 py-0.5 text-[10px] font-display font-black text-slate-950"
+                style={{ backgroundColor: qCdSec === 0 ? agentSpec.skills.Q.accentColor : '#475569' }}
+              >
+                Q
+              </span>
+              <span className="font-display text-xs font-bold text-white" id="hud-skill-Q-status">
+                {qCdSec > 0 ? `${qCdSec}s` : 'READY'}
+              </span>
+            </div>
+            <div className="font-display text-[10px] font-bold text-slate-200 truncate mt-1.5 uppercase">
+              {agentSpec.skills.Q.name}
+            </div>
+          </button>
+
+          {/* [C] Skill */}
+          <button
+            id="btn-hud-skill-C"
+            type="button"
+            disabled={!me.alive || cCdSec > 0}
+            onClick={() => triggerSkillFromHud('C')}
+            className={`hud-panel hud-cut-sm border px-3 py-2 min-w-[106px] text-left transition cursor-pointer disabled:cursor-not-allowed ${
+              cCdSec === 0
+                ? 'border-slate-500 hover:border-cyan-300'
+                : 'border-slate-800 opacity-65'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span
+                className="px-1.5 py-0.5 text-[10px] font-display font-black text-slate-950"
+                style={{ backgroundColor: cCdSec === 0 ? agentSpec.skills.C.accentColor : '#475569' }}
+              >
+                C
+              </span>
+              <span className="font-display text-xs font-bold text-white" id="hud-skill-C-status">
+                {cCdSec > 0 ? `${cCdSec}s` : 'READY'}
+              </span>
+            </div>
+            <div className="font-display text-[10px] font-bold text-slate-200 truncate mt-1.5 uppercase">
+              {agentSpec.skills.C.name}
+            </div>
+          </button>
+
+          {/* [X] ULTIMATE (4-Pip Charge Meter) */}
+          <button
+            id="btn-hud-skill-X"
+            type="button"
+            disabled={!me.alive || !ultReady}
+            onClick={() => triggerSkillFromHud('X')}
+            className={`hud-panel hud-cut-sm border px-3.5 py-2 min-w-[132px] text-left transition cursor-pointer disabled:cursor-not-allowed ${
+              ultReady
+                ? 'border-amber-400 shadow-[0_0_24px_rgba(251,191,36,0.4)]'
+                : 'border-slate-800 opacity-75'
+            }`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span
+                className="px-1.5 py-0.5 text-[10px] font-display font-black text-slate-950"
+                style={{ backgroundColor: ultReady ? '#fbbf24' : '#475569' }}
+              >
+                X
+              </span>
+              <div className="flex items-center gap-1" id="hud-ult-pips">
+                {Array.from({ length: me.ultMax }).map((_, i) => (
+                  <span
+                    key={i}
+                    className={`h-2.5 w-2.5 rotate-45 border ${
+                      i < me.ultPoints
+                        ? 'bg-amber-400 border-amber-200'
+                        : 'bg-slate-900 border-slate-600'
+                    }`}
+                  />
+                ))}
+              </div>
+            </div>
+            <div className="font-display text-[10px] font-bold truncate mt-1.5 uppercase text-amber-200">
+              {ultReady ? `ULT: ${agentSpec.skills.X.name}` : `ULT ${me.ultPoints}/${me.ultMax}`}
+            </div>
+          </button>
+        </div>
+      )}
+
       {/* BOTTOM RIGHT — Equipped Weapon & Ammo + Quick Math Button */}
-      <div className="fixed bottom-5 right-5 flex flex-col items-end gap-2">
+      <div className="fixed bottom-4 right-4 flex flex-col items-end gap-2">
         {room.phase === 'playing' && me.alive && me.weapon && (
           <button
             id="btn-hud-math-quick"
             type="button"
             onClick={openMathTerminal}
-            className="pointer-events-auto px-3.5 py-1.5 bg-slate-950/85 hover:bg-cyan-500/20 border border-cyan-500/50 text-cyan-300 text-xs font-display tracking-wider uppercase flex items-center gap-1.5 hud-cut-sm cursor-pointer"
+            className="pointer-events-auto px-3 py-1.5 bg-slate-950/85 hover:bg-cyan-500/20 border border-cyan-500/50 text-cyan-300 text-[11px] font-display tracking-wider uppercase flex items-center gap-1.5 hud-cut-sm cursor-pointer"
           >
-            <Brain className="w-3.5 h-3.5" /> [E] SOLVE MATH (+100 &amp; REROLL)
+            <Brain className="w-3.5 h-3.5" /> [E] MATH (+100 &amp; REROLL)
           </button>
         )}
 
-        <div className="hud-panel hud-cut border border-slate-700/80 p-4 min-w-[245px] space-y-2">
+        <div className="hud-panel hud-cut border border-slate-700/80 p-3.5 min-w-[230px] space-y-1.5">
           {weaponSpec ? (
             <>
               <div className="flex items-center justify-between gap-2">
@@ -396,7 +578,7 @@ export function GameHUD() {
                     <span className="font-display text-sm text-slate-400">/ {weaponSpec.magSize}</span>
                   </div>
                   <span className="text-[10px] font-mono text-slate-400">
-                    {me.ammo === 0 ? '[R] RELOAD NOW' : '[R] RELOAD • [RMB] ZOOM'}
+                    {me.ammo === 0 ? '[R] RELOAD' : '[R] • [RMB]'}
                   </span>
                 </div>
               )}
@@ -408,7 +590,7 @@ export function GameHUD() {
                   NO WEAPON EQUIPPED
                 </div>
                 <div className="font-thai text-xs text-cyan-300">
-                  ตอบโจทย์คณิต [E] เพื่อปลดล็อกอาวุธ
+                  กด [E] ตอบคณิตเพื่อสุ่มปืน 8 แบบ
                 </div>
               </div>
               <Crosshair className="w-6 h-6 text-slate-600" />

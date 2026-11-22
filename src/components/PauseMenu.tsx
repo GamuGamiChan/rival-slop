@@ -72,13 +72,13 @@ export function PauseMenu() {
         {/* Controls Quick Reference */}
         <div className="p-3.5 bg-slate-950/80 border border-slate-800 text-xs grid grid-cols-2 gap-y-1.5 gap-x-3 text-slate-300">
           <div><strong className="text-cyan-300 font-mono">WASD</strong> Move</div>
-          <div><strong className="text-cyan-300 font-mono">SHIFT</strong> Sprint</div>
-          <div><strong className="text-cyan-300 font-mono">SPACE</strong> Jump</div>
+          <div><strong className="text-cyan-300 font-mono">SHIFT / SPACE</strong> Sprint / Jump</div>
           <div><strong className="text-cyan-300 font-mono">LMB / RMB</strong> Shoot / Zoom</div>
           <div><strong className="text-cyan-300 font-mono">R</strong> Reload</div>
-          <div><strong className="text-cyan-300 font-mono">E</strong> Math Quiz</div>
-          <div><strong className="text-cyan-300 font-mono">TAB</strong> Scoreboard</div>
-          <div><strong className="text-cyan-300 font-mono">ESC</strong> Pause</div>
+          <div><strong className="text-amber-300 font-mono">Q / C</strong> Agent Skills</div>
+          <div><strong className="text-amber-300 font-mono">X</strong> Ultimate (4 pts)</div>
+          <div><strong className="text-cyan-300 font-mono">E</strong> Math Quiz (+100)</div>
+          <div><strong className="text-cyan-300 font-mono">TAB / ESC</strong> Score / Pause</div>
         </div>
 
         <div className="space-y-2.5 pt-2">
