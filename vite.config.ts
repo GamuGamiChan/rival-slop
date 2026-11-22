@@ -5,7 +5,9 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
+    host: true,
     port: 5173,
+    allowedHosts: true,
     proxy: {
       '/ws': {
         target: 'ws://localhost:3001',
