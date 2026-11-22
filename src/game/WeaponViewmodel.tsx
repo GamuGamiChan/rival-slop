@@ -1,9 +1,10 @@
 import { useFrame, useThree } from '@react-three/fiber'
-import { useRef } from 'react'
+import { Suspense, useRef } from 'react'
 import * as THREE from 'three'
 import type { WeaponId } from '../../shared/types.ts'
 import { WEAPONS } from '../../shared/weapons.ts'
 import { selectMyPlayer, useGameStore } from '../store/useGameStore.ts'
+import { ImportedWeaponModel } from './ImportedWeaponModel.tsx'
 
 function PistolMesh({ accent }: { accent: string }) {
   return (
@@ -437,18 +438,26 @@ export function WeaponViewmodel() {
   const spec = WEAPONS[weapon]
   const muzzleZ = getMuzzleZ(weapon)
 
+  const fallbackMesh = (
+    <>
+      {weapon === 'pistol' && <PistolMesh accent={spec.accentColor} />}
+      {weapon === 'revolver' && <RevolverMesh accent={spec.accentColor} />}
+      {weapon === 'smg' && <SmgMesh accent={spec.accentColor} />}
+      {weapon === 'rifle' && <RifleMesh accent={spec.accentColor} />}
+      {weapon === 'burst' && <BurstMesh accent={spec.accentColor} />}
+      {weapon === 'shotgun' && <ShotgunMesh accent={spec.accentColor} />}
+      {weapon === 'lmg' && <LmgMesh accent={spec.accentColor} />}
+      {weapon === 'sniper' && <SniperMesh accent={spec.accentColor} />}
+    </>
+  )
+
   return (
     <group ref={rootRef} visible={!isAdsZoom || weapon !== 'sniper'}>
       <pointLight position={[0.15, 0.25, -0.15]} intensity={1.8} distance={2.8} color="#e2e8f0" />
       <group ref={weaponPivotRef}>
-        {weapon === 'pistol' && <PistolMesh accent={spec.accentColor} />}
-        {weapon === 'revolver' && <RevolverMesh accent={spec.accentColor} />}
-        {weapon === 'smg' && <SmgMesh accent={spec.accentColor} />}
-        {weapon === 'rifle' && <RifleMesh accent={spec.accentColor} />}
-        {weapon === 'burst' && <BurstMesh accent={spec.accentColor} />}
-        {weapon === 'shotgun' && <ShotgunMesh accent={spec.accentColor} />}
-        {weapon === 'lmg' && <LmgMesh accent={spec.accentColor} />}
-        {weapon === 'sniper' && <SniperMesh accent={spec.accentColor} />}
+        <Suspense fallback={fallbackMesh}>
+          <ImportedWeaponModel weapon={weapon} accent={spec.accentColor} />
+        </Suspense>
 
         {/* Multi-plane plasma muzzle flash */}
         <mesh ref={muzzleRef} position={[0, 0.025, muzzleZ]} visible={false}>

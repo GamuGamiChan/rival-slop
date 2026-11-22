@@ -57,6 +57,7 @@ import {
   type PlayerPublicState,
   type PublicMathQuestion,
   type RoomSnapshot,
+  type RoundState,
   type ScoreboardEntry,
   type ShotEvent,
   type SkillCastPayload,
@@ -81,6 +82,12 @@ export interface InternalRoom {
   roomCode: string
   hostId: string
   phase: MatchPhase
+  roundNumber: number
+  roundState: RoundState
+  roundPhaseEndsAt: number | null
+  activeRoundQuestionId: string | null
+  roundAnsweredPlayerIds: Set<string>
+  roomUsedQuestionIds: Set<string>
   createdAt: number
   countdownEndsAt: number | null
   matchStartedAt: number | null
@@ -115,6 +122,7 @@ export interface TickTransition {
   roomCode: string
   type:
     | 'PHASE_PLAYING'
+    | 'ROUND_STATE_CHANGED'
     | 'RESPAWNED'
     | 'RELOADED'
     | 'EFFECTS_UPDATED'
@@ -124,6 +132,8 @@ export interface TickTransition {
   summary?: MatchSummary
   hits?: CombatHitRecord[]
   attackerId?: string
+  assignedQuestion?: PublicMathQuestion
+  timeoutResults?: Array<{ playerId: string; result: AnswerResultPayload }>
 }
 
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -226,9 +236,10 @@ export class RoomManager {
       victim.respawnAt = now + MATCH_CONFIG.RESPAWN_MS
       victim.deaths += 1
       victim.streak = 0
-      victim.weapon = null
-      victim.ammo = 0
-      victim.maxAmmo = 0
+      if (victim.weapon) {
+        victim.ammo = WEAPONS[victim.weapon].magSize
+        victim.maxAmmo = WEAPONS[victim.weapon].magSize
+      }
       victim.reloadingUntil = null
       victim.maxHp = MATCH_CONFIG.MAX_HP
       victim.overshieldUntil = null
@@ -311,9 +322,9 @@ export class RoomManager {
       maxHp: MATCH_CONFIG.MAX_HP,
       alive: true,
       respawnAt: null,
-      weapon: null,
-      ammo: 0,
-      maxAmmo: 0,
+      weapon: 'pistol',
+      ammo: WEAPONS.pistol.magSize,
+      maxAmmo: WEAPONS.pistol.magSize,
       reloadingUntil: null,
       skillQReadyAt: 0,
       skillCReadyAt: 0,
@@ -341,6 +352,12 @@ export class RoomManager {
       roomCode,
       hostId: playerId,
       phase: 'lobby',
+      roundNumber: 1,
+      roundState: 'ROUND_START',
+      roundPhaseEndsAt: null,
+      activeRoundQuestionId: null,
+      roundAnsweredPlayerIds: new Set<string>(),
+      roomUsedQuestionIds: new Set<string>(),
       createdAt: now,
       countdownEndsAt: null,
       matchStartedAt: null,
@@ -409,9 +426,9 @@ export class RoomManager {
       maxHp: MATCH_CONFIG.MAX_HP,
       alive: true,
       respawnAt: null,
-      weapon: null,
-      ammo: 0,
-      maxAmmo: 0,
+      weapon: 'pistol',
+      ammo: WEAPONS.pistol.magSize,
+      maxAmmo: WEAPONS.pistol.magSize,
       reloadingUntil: null,
       skillQReadyAt: 0,
       skillCReadyAt: 0,
@@ -607,6 +624,12 @@ export class RoomManager {
 
     const now = this.nowFn()
     room.phase = 'countdown'
+    room.roundNumber = 1
+    room.roundState = 'ROUND_START'
+    room.roundPhaseEndsAt = null
+    room.activeRoundQuestionId = null
+    room.roundAnsweredPlayerIds.clear()
+    room.roomUsedQuestionIds.clear()
     room.countdownEndsAt = now + MATCH_CONFIG.COUNTDOWN_SEC * 1000
     room.matchStartedAt = null
     room.matchEndsAt = null
@@ -624,9 +647,9 @@ export class RoomManager {
       p.maxHp = MATCH_CONFIG.MAX_HP
       p.alive = true
       p.respawnAt = null
-      p.weapon = null
-      p.ammo = 0
-      p.maxAmmo = 0
+      p.weapon = 'pistol'
+      p.ammo = WEAPONS.pistol.magSize
+      p.maxAmmo = WEAPONS.pistol.magSize
       p.reloadingUntil = null
       p.skillQReadyAt = 0
       p.skillCReadyAt = 0
@@ -668,9 +691,9 @@ export class RoomManager {
         room.players.delete(id)
       } else {
         p.ready = p.isHost
-        p.weapon = null
-        p.ammo = 0
-        p.maxAmmo = 0
+        p.weapon = 'pistol'
+        p.ammo = WEAPONS.pistol.magSize
+        p.maxAmmo = WEAPONS.pistol.magSize
         p.hp = MATCH_CONFIG.MAX_HP
         p.maxHp = MATCH_CONFIG.MAX_HP
         p.alive = true
@@ -685,6 +708,12 @@ export class RoomManager {
     }
 
     room.phase = 'lobby'
+    room.roundNumber = 1
+    room.roundState = 'ROUND_START'
+    room.roundPhaseEndsAt = null
+    room.activeRoundQuestionId = null
+    room.roundAnsweredPlayerIds.clear()
+    room.roomUsedQuestionIds.clear()
     room.countdownEndsAt = null
     room.matchStartedAt = null
     room.matchEndsAt = null
@@ -712,7 +741,11 @@ export class RoomManager {
     const now = this.nowFn()
     const dtSec = Math.max(0.016, Math.min(1.0, (now - player.lastMoveAt) / 1000))
 
-    if (room.phase === 'countdown') {
+    // During countdown or non-combat round phases (ROUND_END / MATH_CHALLENGE / etc.), lock movement
+    if (
+      room.phase === 'countdown' ||
+      (room.roundState !== 'COMBAT_ACTIVE' && room.roundState !== 'ROUND_START')
+    ) {
       player.yaw = yaw
       player.pitch = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, pitch))
       player.lastMoveAt = now
@@ -743,11 +776,43 @@ export class RoomManager {
     return true
   }
 
+  /**
+   * Authoritatively begins a synchronized Math Challenge at the end of a Combat Round.
+   * Assigns the round question to all connected players so everyone receives equal opportunity.
+   */
+  beginMathChallengePhase(room: InternalRoom, now: number): PublicMathQuestion | null {
+    room.roundState = 'MATH_CHALLENGE'
+    room.roundPhaseEndsAt = now + MATCH_CONFIG.MATH_CHALLENGE_MS
+    room.roundAnsweredPlayerIds.clear()
+
+    let nextQ = pickNextQuestion(room.roomUsedQuestionIds, undefined, this.rngFn)
+    if (!nextQ) {
+      room.roomUsedQuestionIds.clear()
+      nextQ = pickNextQuestion(room.roomUsedQuestionIds, undefined, this.rngFn)
+    }
+    if (!nextQ) return null
+
+    room.activeRoundQuestionId = nextQ.id
+    room.roomUsedQuestionIds.add(nextQ.id)
+
+    for (const p of room.players.values()) {
+      p.activeQuestionId = nextQ.id
+    }
+
+    return toPublicQuestion(nextQ)
+  }
+
+  /**
+   * Manually requesting a random weapon or question during an active Combat Round is FORBIDDEN
+   * (Section 1 & 2 specification). Returns the active round question ONLY if the room is currently
+   * in MATH_CHALLENGE phase (e.g., for a reconnecting client).
+   */
   requestQuestion(
     roomCode: string,
     playerId: string,
     preferredDifficulty?: Difficulty,
   ): { ok: true; question: PublicMathQuestion } | { ok: false; code: string; message: string } {
+    void preferredDifficulty
     const room = this.rooms.get(roomCode)
     if (!room) return { ok: false, code: 'ROOM_NOT_FOUND', message: 'ไม่พบห้อง' }
     if (room.phase !== 'playing') {
@@ -758,24 +823,29 @@ export class RoomManager {
       return { ok: false, code: 'PLAYER_NOT_FOUND', message: 'ไม่พบผู้เล่น' }
     }
 
-    if (player.activeQuestionId && !player.attemptedQuestionIds.has(player.activeQuestionId)) {
-      const existing = QUESTION_BY_ID.get(player.activeQuestionId)
+    // Rule 1 & 2: Strictly forbid manual random weapon roll or question request during COMBAT_ACTIVE!
+    if (room.roundState !== 'MATH_CHALLENGE' && room.roundState !== 'ANSWER_SUBMITTED') {
+      return {
+        ok: false,
+        code: 'MANUAL_ROLL_FORBIDDEN',
+        message: 'ห้ามกดสุ่มอาวุธเองระหว่าง Combat Round! คำถามคณิตศาสตร์จะปรากฏอัตโนมัติเมื่อจบแต่ละ Round',
+      }
+    }
+
+    const qId = room.activeRoundQuestionId ?? player.activeQuestionId
+    if (qId && !player.attemptedQuestionIds.has(qId)) {
+      const existing = QUESTION_BY_ID.get(qId)
       if (existing) {
+        player.activeQuestionId = existing.id
         return { ok: true, question: toPublicQuestion(existing) }
       }
     }
 
-    const nextQ = pickNextQuestion(player.attemptedQuestionIds, preferredDifficulty, this.rngFn)
-    if (!nextQ) {
-      return {
-        ok: false,
-        code: 'NO_MORE_QUESTIONS',
-        message: 'คุณตอบโจทย์ครบทั้งคลัง 48 ข้อแล้ว! ใช้ทักษะการยิงและสกิลเก็บแต้มต่อเลย',
-      }
+    return {
+      ok: false,
+      code: 'MANUAL_ROLL_FORBIDDEN',
+      message: 'ต้องรอให้จบ Combat Round ก่อนจึงจะเข้าสู่ช่วง Math Challenge อัตโนมัติ',
     }
-
-    player.activeQuestionId = nextQ.id
-    return { ok: true, question: toPublicQuestion(nextQ) }
   }
 
   submitAnswer(
@@ -799,19 +869,36 @@ export class RoomManager {
       return { ok: false, code: 'INVALID_CHOICE', message: 'ตัวเลือกคำตอบไม่ถูกต้อง' }
     }
 
-    if (player.attemptedQuestionIds.has(questionId)) {
+    // Rule 4 & 5: Duplicate submission guard (prevents double reward or double -300 penalty on network retry!)
+    if (
+      player.attemptedQuestionIds.has(questionId) ||
+      room.roundAnsweredPlayerIds.has(playerId)
+    ) {
       return {
         ok: false,
         code: 'DUPLICATE_ANSWER',
-        message: 'คำถามนี้ถูกส่งคำตอบไปแล้ว ไม่สามารถตอบซ้ำเพื่อฟาร์มคะแนนได้',
+        message: 'คำถามนี้ถูกส่งคำตอบไปแล้ว ไม่สามารถตอบซ้ำได้',
       }
     }
 
-    if (player.activeQuestionId !== questionId) {
+    // Rule 4 & 5: Reject answers submitted outside MATH_CHALLENGE / ANSWER_SUBMITTED or after timeout
+    const now = this.nowFn()
+    if (
+      (room.roundState !== 'MATH_CHALLENGE' && room.roundState !== 'ANSWER_SUBMITTED') ||
+      (room.roundPhaseEndsAt !== null && now > room.roundPhaseEndsAt + 500)
+    ) {
+      return {
+        ok: false,
+        code: 'ANSWER_TIMEOUT',
+        message: 'หมดเวลาส่งคำตอบของรอบนี้แล้ว (ไม่อนุญาตให้ส่งหลังหมดเวลา)',
+      }
+    }
+
+    if (player.activeQuestionId !== questionId && room.activeRoundQuestionId !== questionId) {
       return {
         ok: false,
         code: 'UNASSIGNED_QUESTION',
-        message: 'คำถามนี้ไม่ได้ถูกสุ่มให้กับผู้เล่นในรอบปัจจุบัน',
+        message: 'คำถามนี้ไม่ได้ถูกกำหนดให้กับรอบปัจจุบัน',
       }
     }
 
@@ -822,16 +909,19 @@ export class RoomManager {
 
     player.attemptedQuestionIds.add(questionId)
     player.activeQuestionId = null
+    room.roundAnsweredPlayerIds.add(playerId)
 
     const correct = selectedIndex === question.correctIndex
     let awardedWeapon: WeaponId | null = null
-    let pointsAwarded = 0
+    let confiscatedWeapon: WeaponId | null = null
+    let weaponConfiscated = false
+    let pointsAwarded: number
 
     if (correct) {
+      // Section 3: Correct Answer -> +100 PTS, +1 ULT, roll weapon from [pistol, rifle, shotgun, sniper]
       pointsAwarded = SCORING.MATH_CORRECT
       player.correctAnswers += 1
       player.totalScore += pointsAwarded
-      // Answering math correctly charges your Valorant-style Ultimate (+1 ult orb)!
       player.ultPoints = Math.min(ULT_MAX_POINTS, player.ultPoints + 1)
 
       awardedWeapon = rollRandomWeapon(question.difficulty, player.weapon, this.rngFn)
@@ -841,21 +931,47 @@ export class RoomManager {
       player.maxAmmo = spec.magSize
       player.reloadingUntil = null
     } else {
+      // Section 4: Wrong Answer Penalty -> confiscate held weapon (Unarmed) & deduct 300 points (-300)!
+      pointsAwarded = SCORING.MATH_WRONG // -300
       player.wrongAnswers += 1
+      player.totalScore += pointsAwarded
+      confiscatedWeapon = player.weapon
+      weaponConfiscated = true
+      player.weapon = null
+      player.ammo = 0
+      player.maxAmmo = 0
+      player.reloadingUntil = null
+    }
+
+    // Check if all connected players have submitted their answer for this round
+    const connectedPlayers = Array.from(room.players.values()).filter((p) => p.connected)
+    const allAnswered =
+      connectedPlayers.length > 0 &&
+      connectedPlayers.every((p) => room.roundAnsweredPlayerIds.has(p.id))
+
+    if (allAnswered) {
+      room.roundState = 'ANSWER_FEEDBACK'
+      room.roundPhaseEndsAt = now + MATCH_CONFIG.ANSWER_FEEDBACK_MS
+    } else {
+      room.roundState = 'ANSWER_SUBMITTED'
     }
 
     return {
       ok: true,
       result: {
+        roundNumber: room.roundNumber,
         questionId: question.id,
         correct,
         pointsAwarded,
         awardedWeapon,
+        weaponConfiscated,
+        confiscatedWeapon,
         correctIndex: question.correctIndex,
         correctChoiceText: question.choices[question.correctIndex],
         explanation: question.explanation,
         totalScore: player.totalScore,
         correctAnswers: player.correctAnswers,
+        wrongAnswers: player.wrongAnswers,
       },
       snapshot: this.buildSnapshot(room),
     }
@@ -866,8 +982,8 @@ export class RoomManager {
     playerId: string,
   ): { ok: true; reloadingUntil: number } | { ok: false; code: string; message: string } {
     const room = this.rooms.get(roomCode)
-    if (!room || room.phase !== 'playing') {
-      return { ok: false, code: 'MATCH_NOT_ACTIVE', message: 'เกมยังไม่เริ่ม' }
+    if (!room || room.phase !== 'playing' || room.roundState !== 'COMBAT_ACTIVE') {
+      return { ok: false, code: 'MATCH_NOT_ACTIVE', message: 'รีโหลดได้เฉพาะในช่วง Combat Round เท่านั้น' }
     }
     const player = room.players.get(playerId)
     if (!player || !player.alive || !player.weapon) {
@@ -893,8 +1009,8 @@ export class RoomManager {
     rawDirection: Vec3,
   ): { ok: true; outcome: SkillOutcome } | { ok: false; code: string; message: string } {
     const room = this.rooms.get(roomCode)
-    if (!room || room.phase !== 'playing') {
-      return { ok: false, code: 'MATCH_NOT_ACTIVE', message: 'ใช้สกิลได้เฉพาะขณะแข่งขันเท่านั้น' }
+    if (!room || room.phase !== 'playing' || room.roundState !== 'COMBAT_ACTIVE') {
+      return { ok: false, code: 'MATCH_NOT_ACTIVE', message: 'ใช้สกิลได้เฉพาะในช่วง Combat Round เท่านั้น' }
     }
     const player = room.players.get(playerId)
     if (!player || !player.connected || !player.alive) {
@@ -1259,15 +1375,15 @@ export class RoomManager {
     rawDirection: Vec3,
   ): { ok: true; outcome: ShootOutcome; scoreboardChanged: boolean } | { ok: false; code: string; message: string } {
     const room = this.rooms.get(roomCode)
-    if (!room || room.phase !== 'playing') {
-      return { ok: false, code: 'MATCH_NOT_ACTIVE', message: 'เกมยังไม่เริ่ม' }
+    if (!room || room.phase !== 'playing' || room.roundState !== 'COMBAT_ACTIVE') {
+      return { ok: false, code: 'MATCH_NOT_ACTIVE', message: 'ยิงได้เฉพาะในช่วง Combat Round เท่านั้น' }
     }
     const shooter = room.players.get(shooterId)
     if (!shooter || !shooter.connected || !shooter.alive) {
       return { ok: false, code: 'CANNOT_SHOOT', message: 'ผู้เล่นไม่สามารถยิงได้ในขณะนี้' }
     }
     if (!shooter.weapon) {
-      return { ok: false, code: 'NO_WEAPON', message: 'ต้องตอบคำถามคณิตศาสตร์ให้ถูกก่อนจึงจะได้รับอาวุธ' }
+      return { ok: false, code: 'NO_WEAPON', message: 'อาวุธถูกยึด (Unarmed)! ต้องรอจบ Combat Round แล้วตอบคำถามคณิตศาสตร์ให้ถูกเพื่อรับอาวุธใหม่' }
     }
     if (!isFiniteVec3(origin) || !isFiniteVec3(rawDirection)) {
       return { ok: false, code: 'INVALID_VECTOR', message: 'ทิศทางการยิงไม่ถูกต้อง' }
@@ -1430,6 +1546,11 @@ export class RoomManager {
         room.matchStartedAt = now
         room.matchEndsAt = now + MATCH_CONFIG.DURATION_SEC * 1000
         room.countdownEndsAt = null
+        room.roundNumber = 1
+        room.roundState = 'ROUND_START'
+        room.roundPhaseEndsAt = now + MATCH_CONFIG.ROUND_START_MS
+        room.activeRoundQuestionId = null
+        room.roundAnsweredPlayerIds.clear()
         transitions.push({ roomCode, type: 'PHASE_PLAYING' })
       }
 
@@ -1438,13 +1559,135 @@ export class RoomManager {
         let anyReload = false
         let effectsDirty = false
 
+        // Authoritative 8-State Round Synchronization Machine:
+        // ROUND_START -> COMBAT_ACTIVE -> ROUND_END -> MATH_CHALLENGE / ANSWER_SUBMITTED -> ANSWER_FEEDBACK -> WEAPON_REVEAL -> NEXT_ROUND -> ROUND_START
+        if (room.roundPhaseEndsAt !== null && now >= room.roundPhaseEndsAt) {
+          if (room.roundState === 'ROUND_START') {
+            room.roundState = 'COMBAT_ACTIVE'
+            room.roundPhaseEndsAt = now + MATCH_CONFIG.COMBAT_ROUND_MS
+            transitions.push({ roomCode, type: 'ROUND_STATE_CHANGED' })
+          } else if (room.roundState === 'COMBAT_ACTIVE') {
+            room.roundState = 'ROUND_END'
+            room.roundPhaseEndsAt = now + MATCH_CONFIG.ROUND_END_MS
+            // Freeze combat and clear active projectiles/effects between rounds
+            room.worldEffects = []
+            transitions.push({ roomCode, type: 'ROUND_STATE_CHANGED' })
+          } else if (room.roundState === 'ROUND_END') {
+            const assignedQ = this.beginMathChallengePhase(room, now)
+            transitions.push({
+              roomCode,
+              type: 'ROUND_STATE_CHANGED',
+              assignedQuestion: assignedQ ?? undefined,
+            })
+          } else if (
+            room.roundState === 'MATH_CHALLENGE' ||
+            room.roundState === 'ANSWER_SUBMITTED'
+          ) {
+            // Time expired for Math Challenge: any connected player who did not answer in time
+            // suffers the wrong-answer Weapon Penalty (-300 points & weapon confiscation)
+            const timeoutResults: Array<{ playerId: string; result: AnswerResultPayload }> = []
+            const q = room.activeRoundQuestionId
+              ? QUESTION_BY_ID.get(room.activeRoundQuestionId)
+              : undefined
+
+            if (q) {
+              for (const p of room.players.values()) {
+                if (!p.connected) continue
+                if (room.roundAnsweredPlayerIds.has(p.id)) continue
+                room.roundAnsweredPlayerIds.add(p.id)
+                p.attemptedQuestionIds.add(q.id)
+                p.activeQuestionId = null
+                p.wrongAnswers += 1
+                p.totalScore += SCORING.MATH_WRONG
+                const confiscatedWeapon = p.weapon
+                p.weapon = null
+                p.ammo = 0
+                p.maxAmmo = 0
+                p.reloadingUntil = null
+
+                timeoutResults.push({
+                  playerId: p.id,
+                  result: {
+                    roundNumber: room.roundNumber,
+                    questionId: q.id,
+                    correct: false,
+                    pointsAwarded: SCORING.MATH_WRONG,
+                    awardedWeapon: null,
+                    weaponConfiscated: true,
+                    confiscatedWeapon,
+                    correctIndex: q.correctIndex,
+                    correctChoiceText: q.choices[q.correctIndex],
+                    explanation: `หมดเวลาตอบคำถาม! (${q.explanation})`,
+                    totalScore: p.totalScore,
+                    correctAnswers: p.correctAnswers,
+                    wrongAnswers: p.wrongAnswers,
+                  },
+                })
+              }
+            }
+
+            room.roundState = 'ANSWER_FEEDBACK'
+            room.roundPhaseEndsAt = now + MATCH_CONFIG.ANSWER_FEEDBACK_MS
+            transitions.push({
+              roomCode,
+              type: 'ROUND_STATE_CHANGED',
+              timeoutResults: timeoutResults.length > 0 ? timeoutResults : undefined,
+            })
+          } else if (room.roundState === 'ANSWER_FEEDBACK') {
+            room.roundState = 'WEAPON_REVEAL'
+            room.roundPhaseEndsAt = now + MATCH_CONFIG.WEAPON_REVEAL_MS
+            transitions.push({ roomCode, type: 'ROUND_STATE_CHANGED' })
+          } else if (room.roundState === 'WEAPON_REVEAL') {
+            if (room.roundNumber >= MATCH_CONFIG.MAX_ROUNDS) {
+              room.phase = 'finished'
+              room.roundPhaseEndsAt = null
+              room.worldEffects = []
+              const summary = this.buildMatchSummary(room, now)
+              room.summary = summary
+              transitions.push({ roomCode, type: 'MATCH_FINISHED', summary })
+            } else {
+              room.roundState = 'NEXT_ROUND'
+              room.roundPhaseEndsAt = now + MATCH_CONFIG.NEXT_ROUND_MS
+              transitions.push({ roomCode, type: 'ROUND_STATE_CHANGED' })
+            }
+          } else if (room.roundState === 'NEXT_ROUND') {
+            if (room.roundNumber >= MATCH_CONFIG.MAX_ROUNDS) {
+              room.phase = 'finished'
+              room.roundPhaseEndsAt = null
+              room.worldEffects = []
+              const summary = this.buildMatchSummary(room, now)
+              room.summary = summary
+              transitions.push({ roomCode, type: 'MATCH_FINISHED', summary })
+            } else {
+              room.roundNumber += 1
+              room.roundState = 'ROUND_START'
+              room.roundPhaseEndsAt = now + MATCH_CONFIG.ROUND_START_MS
+              room.activeRoundQuestionId = null
+              room.roundAnsweredPlayerIds.clear()
+              for (const p of room.players.values()) {
+                p.activeQuestionId = null
+                p.hp = MATCH_CONFIG.MAX_HP
+                p.maxHp = MATCH_CONFIG.MAX_HP
+                p.alive = true
+                p.respawnAt = null
+                if (p.weapon) {
+                  p.ammo = WEAPONS[p.weapon].magSize
+                  p.maxAmmo = WEAPONS[p.weapon].magSize
+                }
+                p.reloadingUntil = null
+              }
+              transitions.push({ roomCode, type: 'ROUND_STATE_CHANGED' })
+            }
+          }
+        }
+
         // Tick delayed Orbital Strikes & clean up expired WorldEffects
         for (const eff of room.worldEffects) {
           if (eff.kind === 'orbital' && !eff.detonated && eff.detonateAt && now >= eff.detonateAt) {
             eff.detonated = true
             effectsDirty = true
             const attacker = room.players.get(eff.ownerId)
-            if (attacker) {
+            if (attacker && room.roundState === 'COMBAT_ACTIVE') {
               const orbitalHits: CombatHitRecord[] = []
               for (const enemy of room.players.values()) {
                 if (enemy.team === eff.ownerTeam || !enemy.alive || !enemy.connected) continue
@@ -1524,7 +1767,15 @@ export class RoomManager {
         if (anyReload) transitions.push({ roomCode, type: 'RELOADED' })
         if (effectsDirty) transitions.push({ roomCode, type: 'EFFECTS_UPDATED' })
 
-        if (room.matchEndsAt !== null && now >= room.matchEndsAt) {
+        // Do not finish the match in the middle of an active Math Challenge — let the round finish or finish during combat
+        const inMathIntermission =
+          room.roundState === 'ROUND_END' ||
+          room.roundState === 'MATH_CHALLENGE' ||
+          room.roundState === 'ANSWER_SUBMITTED' ||
+          room.roundState === 'ANSWER_FEEDBACK' ||
+          room.roundState === 'WEAPON_REVEAL'
+
+        if (room.matchEndsAt !== null && now >= room.matchEndsAt && !inMathIntermission) {
           room.phase = 'finished'
           room.worldEffects = []
           const summary = this.buildMatchSummary(room, now)
@@ -1626,10 +1877,28 @@ export class RoomManager {
       streak: p.streak,
     }))
 
+    const rawQ = room.activeRoundQuestionId
+      ? QUESTION_BY_ID.get(room.activeRoundQuestionId)
+      : undefined
+    const activeRoundQuestion =
+      rawQ &&
+      (room.roundState === 'MATH_CHALLENGE' ||
+        room.roundState === 'ANSWER_SUBMITTED' ||
+        room.roundState === 'ANSWER_FEEDBACK' ||
+        room.roundState === 'WEAPON_REVEAL')
+        ? toPublicQuestion(rawQ)
+        : null
+
     return {
       roomCode: room.roomCode,
       hostId: room.hostId,
       phase: room.phase,
+      roundNumber: room.roundNumber,
+      maxRounds: MATCH_CONFIG.MAX_ROUNDS,
+      roundState: room.roundState,
+      roundPhaseEndsAt: room.roundPhaseEndsAt,
+      activeRoundQuestion,
+      answeredPlayerIds: Array.from(room.roundAnsweredPlayerIds),
       serverNow: this.nowFn(),
       countdownEndsAt: room.countdownEndsAt,
       matchStartedAt: room.matchStartedAt,

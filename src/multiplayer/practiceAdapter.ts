@@ -110,14 +110,15 @@ export class PracticeAdapter {
     room.countdownEndsAt = null
     room.matchStartedAt = now
     room.matchEndsAt = now + 30 * 60 * 1000
+    room.roundNumber = 1
+    room.roundState = 'COMBAT_ACTIVE'
+    room.roundPhaseEndsAt = now + 35_000
     room.players.delete(dummy.playerId)
 
     const me = room.players.get(created.playerId)
     if (me) {
       me.position = { x: 0, y: 0, z: -15.5 }
       me.yaw = Math.PI
-      // Start Practice Range with Pulse Pistol equipped so beginners can test movement/Ctrl-Aim/Shift-Sprint/Shooting
-      // right away AND press [RR] anytime to practice Math Questions + 8-Weapon Roulette!
       me.weapon = 'pistol'
       me.ammo = WEAPONS.pistol.magSize
       me.maxAmmo = WEAPONS.pistol.magSize
@@ -331,8 +332,20 @@ export class PracticeAdapter {
       const now = Date.now()
       const tSec = (now - this.startedAt) / 1000
       const transitions = this.manager.tick()
-      if (transitions.some((tr) => tr.type === 'RELOADED' || tr.type === 'EFFECTS_UPDATED')) {
-        this.emitSnapshot()
+      for (const tr of transitions) {
+        if (tr.type === 'ROUND_STATE_CHANGED') {
+          if (tr.assignedQuestion) {
+            this.onMessage?.({ type: 'QUESTION_ASSIGNED', question: tr.assignedQuestion })
+          }
+          if (tr.timeoutResults) {
+            for (const item of tr.timeoutResults) {
+              this.onMessage?.({ type: 'ANSWER_RESULT', result: item.result })
+            }
+          }
+          this.emitSnapshot()
+        } else if (tr.type === 'RELOADED' || tr.type === 'EFFECTS_UPDATED') {
+          this.emitSnapshot()
+        }
       }
 
       // Animate training target drones smoothly & respawn destroyed drones after 2.4s

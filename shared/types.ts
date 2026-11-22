@@ -196,10 +196,38 @@ export interface MatchSummary {
   standings: ScoreboardEntry[]
 }
 
+export type RoundState =
+  | 'ROUND_START'
+  | 'COMBAT_ACTIVE'
+  | 'ROUND_END'
+  | 'MATH_CHALLENGE'
+  | 'ANSWER_SUBMITTED'
+  | 'ANSWER_FEEDBACK'
+  | 'WEAPON_REVEAL'
+  | 'NEXT_ROUND'
+
+export interface MathHistoryEntry {
+  roundNumber: number
+  questionId: string
+  topic: string
+  correct: boolean
+  pointsDelta: number
+  awardedWeapon: WeaponId | null
+  weaponConfiscated?: boolean
+  confiscatedWeapon: WeaponId | null
+  timestamp: number
+}
+
 export interface RoomSnapshot {
   roomCode: string
   hostId: string
   phase: MatchPhase
+  roundNumber: number
+  maxRounds: number
+  roundState: RoundState
+  roundPhaseEndsAt: number | null
+  activeRoundQuestion: PublicMathQuestion | null
+  answeredPlayerIds: string[]
   serverNow: number
   countdownEndsAt: number | null
   matchStartedAt: number | null
@@ -214,15 +242,19 @@ export interface RoomSnapshot {
 }
 
 export interface AnswerResultPayload {
+  roundNumber?: number
   questionId: string
   correct: boolean
   pointsAwarded: number
   awardedWeapon: WeaponId | null
+  weaponConfiscated?: boolean
+  confiscatedWeapon?: WeaponId | null
   correctIndex: 0 | 1 | 2 | 3
   correctChoiceText: string
   explanation: string
   totalScore: number
   correctAnswers: number
+  wrongAnswers?: number
 }
 
 export interface HitConfirmPayload {
@@ -313,16 +345,24 @@ export type ServerMessage =
 
 export const SCORING = {
   MATH_CORRECT: 100,
-  MATH_WRONG: 0,
+  MATH_WRONG: -300,
   KILL: 150,
   HEADSHOT_BONUS: 50,
 } as const
 
 export const MATCH_CONFIG = {
-  DURATION_SEC: 90,
+  MAX_ROUNDS: 10,
+  DURATION_SEC: 600,
   COUNTDOWN_SEC: 3,
   MIN_PLAYERS: 2,
   MAX_PLAYERS: 8,
   RESPAWN_MS: 3000,
   MAX_HP: 100,
+  ROUND_START_MS: 1200,
+  COMBAT_ROUND_MS: 22_000,
+  ROUND_END_MS: 1500,
+  MATH_CHALLENGE_MS: 20_000,
+  ANSWER_FEEDBACK_MS: 2200,
+  WEAPON_REVEAL_MS: 2600,
+  NEXT_ROUND_MS: 1000,
 } as const

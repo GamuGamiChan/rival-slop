@@ -5,6 +5,7 @@ import type {
   HitConfirmPayload,
   KillFeedItem,
   MatchSummary,
+  MathHistoryEntry,
   PlayerPublicState,
   PublicMathQuestion,
   RoomSnapshot,
@@ -191,6 +192,13 @@ export interface WeaponRevealState {
   timestamp: number
 }
 
+export interface WeaponPenaltyState {
+  id: number
+  confiscatedWeapon: WeaponId | null
+  pointsDeducted: number
+  timestamp: number
+}
+
 export interface ActiveTracer {
   id: string
   shooterId?: string
@@ -235,14 +243,16 @@ export interface GameState {
   isSprinting: boolean
   rrHintUntil: number
 
-  // Explicit 5-State Math Flow Machine
+  // Explicit Math Flow Machine & History
   mathFlowPhase: MathFlowPhase
   activeQuestion: PublicMathQuestion | null
   submittedQuestion: PublicMathQuestion | null
   selectedChoiceIndex: number | null
   lastAnswerResult: AnswerResultPayload | null
   mathModalOpen: boolean
+  mathHistory: MathHistoryEntry[]
   weaponReveal: WeaponRevealState | null
+  weaponPenalty: WeaponPenaltyState | null
   lastSkillBanner: (SkillCastPayload & { receivedAt: number }) | null
   hitMarker: HitMarkerState | null
   lastDamageTaken: (DamageTakenPayload & { timestamp: number }) | null
@@ -255,6 +265,7 @@ export interface GameState {
   pauseOpen: boolean
   scoreboardOpen: boolean
   controlsGuideOpen: boolean
+  creditsModalOpen: boolean
   settingsModalOpen: boolean
   showControlsRef: boolean
   tutorialOpen: boolean
@@ -281,6 +292,7 @@ export interface GameState {
   setPauseOpen: (open: boolean) => void
   setScoreboardOpen: (open: boolean) => void
   setControlsGuideOpen: (open: boolean) => void
+  setCreditsModalOpen: (open: boolean) => void
   setSettingsModalOpen: (open: boolean) => void
   toggleControlsRef: () => void
   setTutorialOpen: (open: boolean) => void
@@ -344,6 +356,7 @@ export interface GameState {
   onKillEvent: (kill: KillFeedItem) => void
   onMatchFinished: (summary: MatchSummary, room: RoomSnapshot) => void
   clearWeaponReveal: () => void
+  clearWeaponPenalty: () => void
   clearLastAnswer: () => void
   resetToMenu: () => void
 }
@@ -388,7 +401,9 @@ export const useGameStore = create<GameState>((set, get) => ({
   selectedChoiceIndex: null,
   lastAnswerResult: null,
   mathModalOpen: false,
+  mathHistory: [],
   weaponReveal: null,
+  weaponPenalty: null,
   lastSkillBanner: null,
   hitMarker: null,
   lastDamageTaken: null,
@@ -400,6 +415,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   pauseOpen: false,
   scoreboardOpen: false,
   controlsGuideOpen: false,
+  creditsModalOpen: false,
   settingsModalOpen: false,
   showControlsRef: false,
   tutorialOpen: false,
@@ -444,6 +460,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   setPauseOpen: (pauseOpen) => set({ pauseOpen }),
   setScoreboardOpen: (scoreboardOpen) => set({ scoreboardOpen }),
   setControlsGuideOpen: (controlsGuideOpen) => set({ controlsGuideOpen }),
+  setCreditsModalOpen: (creditsModalOpen) => set({ creditsModalOpen }),
   setSettingsModalOpen: (settingsModalOpen) => set({ settingsModalOpen }),
   toggleControlsRef: () => set((s) => ({ showControlsRef: !s.showControlsRef })),
   setTutorialOpen: (tutorialOpen) => set({ tutorialOpen }),
@@ -700,6 +717,63 @@ export const useGameStore = create<GameState>((set, get) => ({
     }
 
     const stillPlaying = room.phase === 'playing'
+    const isMathWindow =
+      stillPlaying &&
+      (room.roundState === 'MATH_CHALLENGE' ||
+        room.roundState === 'ANSWER_SUBMITTED' ||
+        room.roundState === 'ANSWER_FEEDBACK' ||
+        room.roundState === 'WEAPON_REVEAL')
+
+    const cur = get()
+    const iHaveAnswered = Boolean(myId && room.answeredPlayerIds?.includes(myId))
+    let nextMathModalOpen: boolean
+    let nextMathFlowPhase: MathFlowPhase
+    let nextActiveQuestion = cur.activeQuestion
+    let nextSubmittedQuestion = cur.submittedQuestion
+    let nextSelectedChoiceIndex = cur.selectedChoiceIndex
+    let nextLastAnswerResult = cur.lastAnswerResult
+    let nextWeaponReveal = cur.weaponReveal
+
+    if (isMathWindow) {
+      nextMathModalOpen = true
+      if (room.activeRoundQuestion && !nextActiveQuestion && !nextSubmittedQuestion) {
+        nextActiveQuestion = room.activeRoundQuestion
+      }
+      if (room.roundState === 'WEAPON_REVEAL') {
+        nextMathFlowPhase =
+          nextLastAnswerResult?.correct && nextLastAnswerResult.awardedWeapon
+            ? 'WEAPON_REVEAL'
+            : 'ANSWER_FEEDBACK'
+      } else if (room.roundState === 'ANSWER_FEEDBACK') {
+        nextMathFlowPhase = 'ANSWER_FEEDBACK'
+      } else if (
+        iHaveAnswered ||
+        cur.mathFlowPhase === 'ANSWER_SUBMITTED' ||
+        cur.mathFlowPhase === 'ANSWER_FEEDBACK' ||
+        cur.mathFlowPhase === 'WEAPON_REVEAL'
+      ) {
+        nextMathFlowPhase =
+          cur.mathFlowPhase === 'QUESTION_ACTIVE' || cur.mathFlowPhase === 'COMBAT_READY'
+            ? nextLastAnswerResult
+              ? 'ANSWER_FEEDBACK'
+              : 'ANSWER_SUBMITTED'
+            : cur.mathFlowPhase
+      } else {
+        nextMathFlowPhase = 'QUESTION_ACTIVE'
+      }
+    } else {
+      // Combat Round active (ROUND_START / COMBAT_ACTIVE / ROUND_END / NEXT_ROUND): Math Modal closes automatically
+      nextMathModalOpen = false
+      nextMathFlowPhase = 'COMBAT_READY'
+      nextActiveQuestion = null
+      nextSubmittedQuestion = null
+      nextSelectedChoiceIndex = null
+      nextLastAnswerResult = null
+      if (cur.mathModalOpen && cur.weaponReveal) {
+        nextWeaponReveal = { ...cur.weaponReveal, timestamp: Date.now() }
+      }
+    }
+
     set({
       room,
       screen: nextScreen,
@@ -708,13 +782,13 @@ export const useGameStore = create<GameState>((set, get) => ({
       recentKills: room.killFeed,
       matchSummary: room.summary ?? get().matchSummary,
       clockOffsetMs: room.serverNow - Date.now(),
-      // NEVER wipe active math question / feedback state while the match is still playing!
-      mathModalOpen: stillPlaying ? get().mathModalOpen : false,
-      mathFlowPhase: stillPlaying ? get().mathFlowPhase : 'COMBAT_READY',
-      activeQuestion: stillPlaying ? get().activeQuestion : null,
-      submittedQuestion: stillPlaying ? get().submittedQuestion : null,
-      selectedChoiceIndex: stillPlaying ? get().selectedChoiceIndex : null,
-      lastAnswerResult: stillPlaying ? get().lastAnswerResult : null,
+      mathModalOpen: nextMathModalOpen,
+      mathFlowPhase: nextMathFlowPhase,
+      activeQuestion: nextActiveQuestion,
+      submittedQuestion: nextSubmittedQuestion,
+      selectedChoiceIndex: nextSelectedChoiceIndex,
+      lastAnswerResult: nextLastAnswerResult,
+      weaponReveal: nextWeaponReveal,
       pauseOpen: stillPlaying ? get().pauseOpen : false,
     })
   },
@@ -817,16 +891,35 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   onAnswerResult: (result) => {
     const state = get()
-    const preservedQuestion = state.submittedQuestion ?? state.activeQuestion
+    const preservedQuestion =
+      state.submittedQuestion ?? state.activeQuestion ?? state.room?.activeRoundQuestion ?? null
     if (result.correct) {
       state.markTutorialStep('solvedMath')
     }
+    const historyEntry: MathHistoryEntry = {
+      roundNumber: result.roundNumber ?? state.room?.roundNumber ?? 1,
+      questionId: result.questionId,
+      topic: preservedQuestion?.topic ?? 'คณิตศาสตร์ ม.4',
+      correct: result.correct,
+      pointsDelta: result.pointsAwarded,
+      awardedWeapon: result.awardedWeapon,
+      confiscatedWeapon: result.confiscatedWeapon ?? null,
+      timestamp: Date.now(),
+    }
+    const nextHistory = [
+      historyEntry,
+      ...state.mathHistory.filter(
+        (h) => !(h.roundNumber === historyEntry.roundNumber && h.questionId === historyEntry.questionId),
+      ),
+    ].slice(0, 12)
+
     set({
       submittedQuestion: preservedQuestion,
       lastAnswerResult: result,
       activeQuestion: null,
       mathModalOpen: true,
       mathFlowPhase: 'ANSWER_FEEDBACK',
+      mathHistory: nextHistory,
       weaponReveal:
         result.correct && result.awardedWeapon
           ? {
@@ -835,7 +928,15 @@ export const useGameStore = create<GameState>((set, get) => ({
               pointsAwarded: result.pointsAwarded,
               timestamp: Date.now(),
             }
-          : state.weaponReveal,
+          : null,
+      weaponPenalty: !result.correct
+        ? {
+            id: Date.now(),
+            confiscatedWeapon: result.confiscatedWeapon ?? null,
+            pointsDeducted: Math.abs(result.pointsAwarded),
+            timestamp: Date.now(),
+          }
+        : null,
     })
   },
 
@@ -925,6 +1026,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   clearWeaponReveal: () => set({ weaponReveal: null }),
+  clearWeaponPenalty: () => set({ weaponPenalty: null }),
   clearLastAnswer: () =>
     set({
       lastAnswerResult: null,
@@ -952,7 +1054,9 @@ export const useGameStore = create<GameState>((set, get) => ({
       lastAnswerResult: null,
       mathModalOpen: false,
       mathFlowPhase: 'COMBAT_READY',
+      mathHistory: [],
       weaponReveal: null,
+      weaponPenalty: null,
       lastSkillBanner: null,
       hitMarker: null,
       lastDamageTaken: null,

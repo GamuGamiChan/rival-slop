@@ -160,7 +160,7 @@ export function LobbyScreen() {
             AGENT SELECT &amp; MATCH LOBBY
           </div>
           <h2 className="font-display text-2xl sm:text-3xl font-black text-white">
-            MATH DEATHMATCH • 90 SEC
+            MATH DEATHMATCH • {MATCH_CONFIG.MAX_ROUNDS} ROUNDS
           </h2>
         </div>
 

@@ -21,7 +21,7 @@ export function ResultScreen() {
         {/* Winner Banner */}
         <header className="hud-panel hud-cut border-2 border-amber-400/70 p-6 sm:p-8 text-center space-y-3 shadow-[0_0_60px_rgba(255,184,0,0.18)]">
           <div className="inline-flex items-center gap-2 px-3.5 py-1 bg-amber-500/20 border border-amber-400/50 text-amber-300 font-display text-xs tracking-[0.26em] uppercase">
-            <Trophy className="w-4 h-4" /> MATCH COMPLETE • 90 SECONDS UP
+            <Trophy className="w-4 h-4" /> MATCH COMPLETE • 10 ROUNDS FINISHED
           </div>
 
           {winner ? (

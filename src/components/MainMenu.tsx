@@ -1,4 +1,5 @@
 import {
+  Box,
   Crosshair,
   GraduationCap,
   Keyboard,
@@ -14,7 +15,7 @@ import {
 } from 'lucide-react'
 import { useState } from 'react'
 import { AGENT_IDS, AGENTS } from '../../shared/agents.ts'
-import { WEAPON_IDS, WEAPONS } from '../../shared/weapons.ts'
+import { REWARD_WEAPON_POOL, WEAPONS } from '../../shared/weapons.ts'
 import { multiplayerClient } from '../multiplayer/client.ts'
 import { loadSession, useGameStore } from '../store/useGameStore.ts'
 
@@ -23,6 +24,7 @@ export function MainMenu() {
   const setPlayerName = useGameStore((s) => s.setPlayerName)
   const setScreen = useGameStore((s) => s.setScreen)
   const setControlsGuideOpen = useGameStore((s) => s.setControlsGuideOpen)
+  const setCreditsModalOpen = useGameStore((s) => s.setCreditsModalOpen)
   const muted = useGameStore((s) => s.muted)
   const setMuted = useGameStore((s) => s.setMuted)
   const errorMessage = useGameStore((s) => s.errorMessage)
@@ -64,7 +66,7 @@ export function MainMenu() {
               GRADE 10 TERM 2 • ค31102
             </div>
             <div className="font-thai text-xs text-slate-300">
-              หลักการนับเบื้องต้น • 8 Weapons • 4 Tactical Agents
+              หลักการนับเบื้องต้น • Combat Round → Math Challenge → Weapon Reward
             </div>
           </div>
         </div>
@@ -78,6 +80,14 @@ export function MainMenu() {
                 ? 'WebRTC P2P Online'
                 : 'Authoritative WS'}
           </span>
+          <button
+            id="btn-menu-credits"
+            type="button"
+            onClick={() => setCreditsModalOpen(true)}
+            className="px-3 py-2 bg-slate-900/85 hover:bg-slate-800 border border-emerald-500/45 text-emerald-200 hud-cut-sm flex items-center gap-1.5 text-xs font-display tracking-wider uppercase transition cursor-pointer"
+          >
+            <Box className="w-4 h-4 text-emerald-300" /> 3D ASSETS &amp; CREDITS
+          </button>
           <button
             id="btn-menu-controls"
             type="button"
@@ -103,16 +113,17 @@ export function MainMenu() {
         <section className="lg:col-span-6 space-y-5">
           <div className="space-y-3">
             <div className="inline-flex items-center gap-2 px-3 py-1 bg-cyan-500/15 border border-cyan-400/40 text-cyan-300 text-xs font-display tracking-[0.22em] uppercase">
-              <Zap className="w-3.5 h-3.5" /> 90-SECOND TACTICAL MATH FPS
+              <Zap className="w-3.5 h-3.5" /> ROUND-SYNCHRONIZED TACTICAL MATH FPS
             </div>
             <h1 className="font-display text-5xl sm:text-6xl font-black tracking-tight text-white leading-[0.95] drop-shadow-[0_6px_28px_rgba(0,229,255,0.28)]">
               MATH <span className="text-cyan-400">RIVALS</span>{' '}
               <span className="text-rose-500">3D</span>
             </h1>
             <p className="font-thai text-slate-300 text-sm sm:text-base max-w-xl leading-relaxed">
-              ตอบโจทย์คณิตศาสตร์ ม.4 เทอม 2 เพื่อสุ่มปืนไซไฟ <strong className="text-amber-300">8 ชนิด</strong>{' '}
-              ใช้ <strong className="text-cyan-300">Ctrl เล็ง • Shift วิ่ง • Q/C/X สกิล</strong>{' '}
-              ลุยศึกจริง 2–8 คน หรือฝึกควบคุมในโหมด Practice Range ได้ทันที
+              สู้กันในแต่ละ <strong className="text-cyan-300">Combat Round</strong> เมื่อจบรอบระบบจะเปิด{' '}
+              <strong className="text-amber-300">Math Challenge</strong> พร้อมกันทั้งห้อง — ตอบถูกสุ่มรับปืนใหม่ (
+              <strong className="text-emerald-300">Pistol / Rifle / Shotgun / Sniper</strong>) ตอบผิด{' '}
+              <strong className="text-rose-400">ยึดอาวุธทันทีและหัก 300 คะแนน!</strong>
             </p>
           </div>
 
@@ -170,7 +181,7 @@ export function MainMenu() {
               className="w-full flex items-center justify-center gap-2.5 py-3 px-4 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-400/55 text-emerald-200 font-display font-bold tracking-wider text-xs uppercase hud-cut-sm transition cursor-pointer"
             >
               <GraduationCap className="w-4 h-4 text-emerald-300" />
-              PRACTICE RANGE &amp; TUTORIAL (ฝึกเดิน • เล็ง CTRL • ยิง • สุ่มปืน)
+              PRACTICE RANGE &amp; TUTORIAL (ฝึกเดิน • เล็ง CTRL • ยิง • จบรอบตอบคณิต)
             </button>
 
             {savedSession && (
@@ -190,18 +201,18 @@ export function MainMenu() {
           </div>
         </section>
 
-        {/* Right Showcase: 8 Weapons + 4 Tactical Agents */}
+        {/* Right Showcase: Official 4-Weapon Reward Pool + 4 Tactical Agents */}
         <aside className="lg:col-span-6 space-y-3">
           <div className="hud-panel hud-cut border border-slate-700/70 p-4 space-y-3">
             <div className="flex items-center justify-between border-b border-slate-800 pb-2">
               <span className="font-display text-xs tracking-[0.22em] text-cyan-300 uppercase">
-                8 RANDOM SCI-FI WEAPONS
+                WEAPON REWARD POOL (AUDITED 3D GLB)
               </span>
-              <span className="text-[11px] text-slate-400 font-thai">ตอบถูกสุ่มปลดล็อกทันที</span>
+              <span className="text-[11px] text-slate-400 font-thai">สุ่มโดยระบบกลางเมื่อจบ Combat Round</span>
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {WEAPON_IDS.map((id) => {
+              {REWARD_WEAPON_POOL.map((id) => {
                 const w = WEAPONS[id]
                 return (
                   <div
@@ -209,14 +220,15 @@ export function MainMenu() {
                     className="p-2.5 bg-slate-950/85 border border-slate-800/90 space-y-0.5"
                   >
                     <div className="flex items-center justify-between gap-1">
-                      <span className="font-display text-[11px] font-bold text-white truncate">
-                        {w.name.split(' ')[0]}
+                      <span className="font-display text-xs font-black text-white uppercase">
+                        {id.toUpperCase()}
                       </span>
                       <span
                         className="h-2 w-2 rounded-full shrink-0"
                         style={{ backgroundColor: w.accentColor }}
                       />
                     </div>
+                    <div className="text-[10px] font-display text-slate-300 truncate">{w.name}</div>
                     <div className="text-[9px] font-display tracking-wider text-slate-400 uppercase">
                       DMG {w.damage}{w.pellets > 1 ? `×${w.pellets}` : ''} • {w.magSize}RD
                     </div>
@@ -256,16 +268,16 @@ export function MainMenu() {
 
             <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-800">
               <div className="p-2 bg-emerald-950/40 border border-emerald-500/30 text-center">
-                <div className="font-display text-base font-extrabold text-emerald-400">+100</div>
-                <div className="text-[10px] font-thai text-slate-300">ตอบถูก (+1 ULT)</div>
+                <div className="font-display text-base font-extrabold text-emerald-400">+100 &amp; ปืนใหม่</div>
+                <div className="text-[10px] font-thai text-slate-300">ตอบถูกเมื่อจบรอบ</div>
+              </div>
+              <div className="p-2 bg-rose-950/50 border border-rose-500/50 text-center">
+                <div className="font-display text-base font-extrabold text-rose-400">-300 &amp; ยึดปืน</div>
+                <div className="text-[10px] font-thai text-rose-200">ตอบผิด / หมดเวลา</div>
               </div>
               <div className="p-2 bg-cyan-950/40 border border-cyan-500/30 text-center">
-                <div className="font-display text-base font-extrabold text-cyan-300">+150</div>
+                <div className="font-display text-base font-extrabold text-cyan-300">+150 (+50 HS)</div>
                 <div className="text-[10px] font-thai text-slate-300">Kill (+1 ULT)</div>
-              </div>
-              <div className="p-2 bg-rose-950/40 border border-rose-500/30 text-center">
-                <div className="font-display text-base font-extrabold text-rose-400">+50</div>
-                <div className="text-[10px] font-thai text-slate-300">Headshot</div>
               </div>
             </div>
           </div>
@@ -283,7 +295,7 @@ export function MainMenu() {
           </span>
         </div>
         <div className="font-mono text-[11px] text-slate-400">
-          WASD Move • Shift Sprint • Ctrl Aim • LMB Shoot • R Reload • RR Math &amp; Roll • Q/C/X Skills • Tab Score
+          WASD Move • Shift Sprint • Ctrl Aim • LMB Shoot • R Reload • End-of-Round Math Challenge • Q/C/X Skills • Tab Score
         </div>
       </footer>
     </div>

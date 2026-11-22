@@ -7,7 +7,11 @@ const TUTORIAL_STEPS: Array<{ key: keyof TutorialProgress; label: string; hint: 
   { key: 'aimed', label: '3. กด Ctrl ค้างเพื่อเล็ง (Aim Mode)', hint: 'กด Ctrl ซ้าย/ขวา ค้างเพื่อซูมเป้า' },
   { key: 'sprinted', label: '4. กด Shift ค้างขณะเดินเพื่อวิ่งเร็ว', hint: 'กด Shift + WASD วิ่งไวขึ้น' },
   { key: 'shot', label: '5. คลิกซ้ายเพื่อยิงเป้าจำลอง', hint: 'เล็งที่หุ่นเป้า Hologram แล้วคลิกซ้าย' },
-  { key: 'solvedMath', label: '6. กด [RR] ตอบโจทย์คณิตสุ่มปืน', hint: 'กด R สองครั้ง (RR) ตอบให้ถูกเพื่อรับปืนใหม่' },
+  {
+    key: 'solvedMath',
+    label: '6. จบ Combat Round ตอบโจทย์คณิตชิงปืน',
+    hint: 'เมื่อจบรอบต่อสู้ โจทย์จะขึ้นอัตโนมัติ (ตอบถูกได้ปืนใหม่ • ตอบผิดยึดปืน -300)',
+  },
 ]
 
 export function TutorialOverlay() {

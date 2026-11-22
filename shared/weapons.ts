@@ -166,41 +166,35 @@ export const WEAPON_IDS: WeaponId[] = [
   'sniper',
 ]
 
-const DIFFICULTY_WEIGHTS: Record<Difficulty, Record<WeaponId, number>> = {
+/**
+ * Authoritative Math Challenge Weapon Reward Pool (Section 3 specification):
+ * Pistol, Rifle, Shotgun, Sniper.
+ */
+export const REWARD_WEAPON_POOL: WeaponId[] = ['pistol', 'rifle', 'shotgun', 'sniper']
+
+const REWARD_DIFFICULTY_WEIGHTS: Record<Difficulty, Record<'pistol' | 'rifle' | 'shotgun' | 'sniper', number>> = {
   easy: {
-    pistol: 20,
-    revolver: 12,
-    smg: 20,
-    rifle: 18,
-    burst: 10,
-    shotgun: 10,
-    lmg: 5,
-    sniper: 5,
+    pistol: 35,
+    rifle: 30,
+    shotgun: 20,
+    sniper: 15,
   },
   medium: {
-    pistol: 8,
-    revolver: 15,
-    smg: 15,
-    rifle: 18,
-    burst: 15,
-    shotgun: 12,
-    lmg: 9,
-    sniper: 8,
+    pistol: 20,
+    rifle: 32,
+    shotgun: 26,
+    sniper: 22,
   },
   hard: {
-    pistol: 4,
-    revolver: 16,
-    smg: 10,
-    rifle: 14,
-    burst: 14,
-    shotgun: 12,
-    lmg: 14,
-    sniper: 16,
+    pistol: 12,
+    rifle: 28,
+    shotgun: 26,
+    sniper: 34,
   },
 }
 
 /**
- * Randomly rolls one of the 8 weapons with difficulty-weighted odds.
+ * Authoritatively rolls one of the 4 core weapons (Pistol, Rifle, Shotgun, Sniper).
  * Strongly reduces repeat chance so every math solve feels fresh & exciting.
  */
 export function rollRandomWeapon(
@@ -208,15 +202,20 @@ export function rollRandomWeapon(
   previousWeapon: WeaponId | null = null,
   rng: () => number = Math.random,
 ): WeaponId {
-  const weights = { ...DIFFICULTY_WEIGHTS[difficulty] }
-  if (previousWeapon) {
-    weights[previousWeapon] = Math.max(2, Math.floor(weights[previousWeapon] * 0.25))
+  const weights = { ...REWARD_DIFFICULTY_WEIGHTS[difficulty] }
+  if (previousWeapon && previousWeapon in weights) {
+    const key = previousWeapon as keyof typeof weights
+    weights[key] = Math.max(4, Math.floor(weights[key] * 0.25))
   }
-  const total = WEAPON_IDS.reduce((acc, id) => acc + weights[id], 0)
+  const total = REWARD_WEAPON_POOL.reduce(
+    (acc, id) => acc + weights[id as keyof typeof weights],
+    0,
+  )
   let roll = rng() * total
-  for (const id of WEAPON_IDS) {
-    roll -= weights[id]
+  for (const id of REWARD_WEAPON_POOL) {
+    roll -= weights[id as keyof typeof weights]
     if (roll <= 0) return id
   }
   return 'rifle'
 }
+

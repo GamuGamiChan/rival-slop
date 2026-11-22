@@ -1,11 +1,12 @@
 import { Html } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
-import { useRef } from 'react'
+import { Suspense, useRef } from 'react'
 import * as THREE from 'three'
 import { AGENTS } from '../../shared/agents.ts'
 import type { PlayerPublicState } from '../../shared/types.ts'
 import { WEAPONS } from '../../shared/weapons.ts'
 import { selectMyPlayer, useGameStore } from '../store/useGameStore.ts'
+import { ImportedWeaponModel } from './ImportedWeaponModel.tsx'
 
 interface RivalAvatarProps {
   player: PlayerPublicState
@@ -167,17 +168,19 @@ export function RivalAvatar({ player }: RivalAvatarProps) {
         <meshStandardMaterial color={agentAccent} emissive={agentAccent} emissiveIntensity={3.2} />
       </mesh>
 
-      {/* Held Sci-Fi Weapon */}
+      {/* Held Sci-Fi Weapon (Audited Kenney Blaster Kit 3D GLB) */}
       {player.weapon && (
-        <group position={[0.38, 1.02, -0.45]}>
-          <mesh>
-            <boxGeometry args={[0.09, 0.1, weaponLen]} />
-            <meshStandardMaterial color="#e2e8f0" metalness={0.28} roughness={0.34} />
-          </mesh>
-          <mesh position={[0, 0.03, -0.12]}>
-            <boxGeometry args={[0.1, 0.025, weaponLen * 0.72]} />
-            <meshStandardMaterial color={weaponColor} emissive={weaponColor} emissiveIntensity={3.5} />
-          </mesh>
+        <group position={[0.38, 1.02, -0.35]}>
+          <Suspense
+            fallback={
+              <mesh>
+                <boxGeometry args={[0.09, 0.1, weaponLen]} />
+                <meshStandardMaterial color="#e2e8f0" metalness={0.28} roughness={0.34} />
+              </mesh>
+            }
+          >
+            <ImportedWeaponModel weapon={player.weapon} accent={weaponColor} scaleMultiplier={1.08} />
+          </Suspense>
         </group>
       )}
 

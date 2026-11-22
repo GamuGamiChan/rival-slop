@@ -77,7 +77,7 @@ export function PauseMenu() {
           <div><strong className="text-cyan-300 font-mono">SHIFT (Hold)</strong> Sprint</div>
           <div><strong className="text-cyan-300 font-mono">CTRL (Hold)</strong> Aim Mode</div>
           <div><strong className="text-cyan-300 font-mono">LMB</strong> Shoot</div>
-          <div><strong className="text-cyan-300 font-mono">R / RR</strong> Reload / Math Roll</div>
+          <div><strong className="text-cyan-300 font-mono">R</strong> Reload Weapon</div>
           <div><strong className="text-cyan-300 font-mono">SPACE</strong> Jump</div>
           <div><strong className="text-amber-300 font-mono">Q / C / X</strong> Agent Skills</div>
           <div><strong className="text-cyan-300 font-mono">TAB / H</strong> Score / Help</div>

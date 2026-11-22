@@ -92,28 +92,10 @@ export function PlayerController() {
     return { x: _scratchDir.x, y: _scratchDir.y, z: _scratchDir.z }
   }, [])
 
-  const openMathQuiz = useCallback(() => {
-    const state = useGameStore.getState()
-    if (state.room?.phase !== 'playing') return
-    inputManager.resetAllInputs()
-    inputManager.releasePointerLockProgrammatically()
-    state.setAdsZoom(false)
-    state.setSprinting(false)
-    state.setPauseOpen(false)
-    state.setMathModalOpen(true)
-    if (
-      state.mathFlowPhase === 'COMBAT_READY' &&
-      !state.activeQuestion &&
-      !state.lastAnswerResult
-    ) {
-      multiplayerClient.requestQuestion()
-    }
-  }, [])
-
   const castSkill = useCallback(
     (slot: SkillSlot) => {
       const state = useGameStore.getState()
-      if (state.room?.phase !== 'playing') return
+      if (state.room?.phase !== 'playing' || state.room.roundState !== 'COMBAT_ACTIVE') return
       if (state.mathModalOpen || state.pauseOpen) return
       const me = selectMyPlayer(state)
       if (!me || !me.alive) return
@@ -137,13 +119,13 @@ export function PlayerController() {
 
   const attemptShoot = useCallback(() => {
     const state = useGameStore.getState()
-    if (state.room?.phase !== 'playing') return
+    if (state.room?.phase !== 'playing' || state.room.roundState !== 'COMBAT_ACTIVE') return
     if (state.mathModalOpen || state.pauseOpen) return
     const me = selectMyPlayer(state)
     if (!me || !me.alive) return
 
     if (!me.weapon) {
-      openMathQuiz()
+      state.setStatusToast('อาวุธถูกยึด (UNARMED) — รอจบ Combat Round เพื่อทำโจทย์รับอาวุธใหม่!')
       return
     }
 
@@ -260,7 +242,7 @@ export function PlayerController() {
     state.markTutorialStep('shot')
     soundEngine.playWeaponFire(me.weapon, 1)
     multiplayerClient.shoot(origin, dir)
-  }, [computeAimDirection, openMathQuiz])
+  }, [computeAimDirection])
 
   useEffect(() => {
     const domElement = gl.domElement
@@ -269,16 +251,17 @@ export function PlayerController() {
       isArenaActive: () => useGameStore.getState().screen === 'arena',
       isCombatPlayable: () => {
         const s = useGameStore.getState()
-        return s.screen === 'arena' && s.room?.phase === 'playing' && !s.mathModalOpen && !s.pauseOpen
+        return (
+          s.screen === 'arena' &&
+          s.room?.phase === 'playing' &&
+          s.room.roundState === 'COMBAT_ACTIVE' &&
+          !s.mathModalOpen &&
+          !s.pauseOpen
+        )
       },
       isMathModalOpen: () => useGameStore.getState().mathModalOpen,
       isPauseOpen: () => useGameStore.getState().pauseOpen,
-      canDismissMath: () => {
-        const s = useGameStore.getState()
-        const me = selectMyPlayer(s)
-        const exhausted = Boolean(s.errorMessage && s.errorMessage.includes('ครบทั้งคลัง'))
-        return Boolean(!me || me.weapon || exhausted)
-      },
+      canDismissMath: () => false,
       hasWeapon: () => Boolean(selectMyPlayer(useGameStore.getState())?.weapon),
       onPointerLockChange: (locked, wasExpectedUnlock) => {
         const s = useGameStore.getState()
@@ -296,12 +279,10 @@ export function PlayerController() {
           !wasExpectedUnlock &&
           s.screen === 'arena' &&
           s.room?.phase === 'playing' &&
+          s.room.roundState === 'COMBAT_ACTIVE' &&
           !s.mathModalOpen
         ) {
-          const me = selectMyPlayer(s)
-          if (me?.weapon) {
-            s.setPauseOpen(true)
-          }
+          s.setPauseOpen(true)
         }
         wasLockedRef.current = false
       },
@@ -315,34 +296,24 @@ export function PlayerController() {
       onReloadPress: () => {
         const s = useGameStore.getState()
         const me = selectMyPlayer(s)
-        if (me?.weapon && me.ammo < WEAPONS[me.weapon].magSize && !me.reloadingUntil) {
+        if (
+          s.room?.roundState === 'COMBAT_ACTIVE' &&
+          me?.weapon &&
+          me.ammo < WEAPONS[me.weapon].magSize &&
+          !me.reloadingUntil
+        ) {
           multiplayerClient.reload()
           soundEngine.playReload()
         }
       },
-      onDoubleRPress: () => openMathQuiz(),
-      onSingleRHint: () => useGameStore.getState().triggerRrHint(),
-      onOpenOrToggleMath: () => {
-        const s = useGameStore.getState()
-        const me = selectMyPlayer(s)
-        const exhausted = Boolean(s.errorMessage && s.errorMessage.includes('ครบทั้งคลัง'))
-        if (s.mathModalOpen) {
-          if (!me || me.weapon || exhausted) {
-            s.completeMathFlowToCombat()
-          }
-        } else {
-          openMathQuiz()
-        }
-      },
+      onDoubleRPress: () => {},
+      onSingleRHint: () => {},
+      onOpenOrToggleMath: () => {},
       onSkillPress: (slot) => castSkill(slot),
       onEscapePress: () => {
         const s = useGameStore.getState()
-        const me = selectMyPlayer(s)
-        const exhausted = Boolean(s.errorMessage && s.errorMessage.includes('ครบทั้งคลัง'))
         if (s.mathModalOpen) {
-          if (!me || me.weapon || exhausted) {
-            s.completeMathFlowToCombat()
-          }
+          // Rule 2: Players CANNOT skip or close the Math Challenge early!
           return
         }
         // Requirement: Returning from Pause requires intentional Resume action (do not accidentally unpause)
@@ -377,19 +348,13 @@ export function PlayerController() {
       }
     }
 
-    const onHudOpenMathEvent = () => {
-      openMathQuiz()
-    }
-
     window.addEventListener('math-rivals-cast-skill', onHudSkillEvent)
-    window.addEventListener('math-rivals-open-math', onHudOpenMathEvent)
 
     return () => {
       window.removeEventListener('math-rivals-cast-skill', onHudSkillEvent)
-      window.removeEventListener('math-rivals-open-math', onHudOpenMathEvent)
       inputManager.detach()
     }
-  }, [gl.domElement, attemptShoot, castSkill, openMathQuiz])
+  }, [gl.domElement, attemptShoot, castSkill])
 
   useFrame((frameState, rawDelta) => {
     const cam = frameState.camera
@@ -412,20 +377,14 @@ export function PlayerController() {
     const me = selectMyPlayer(state)
     if (!me) return
 
-    // Mandatory Math Gate: auto-open Math Quiz as soon as a live match starts while unarmed!
-    if (
-      !state.practiceMode &&
-      state.room.phase === 'playing' &&
-      me.alive &&
-      !me.weapon &&
-      !state.weaponReveal
-    ) {
-      if (!state.mathModalOpen && !autoMathRequestedRef.current) {
-        autoMathRequestedRef.current = true
-        openMathQuiz()
+    // Automatically release pointer lock & reset held keys when the round transitions into MATH_CHALLENGE
+    if (state.mathModalOpen) {
+      if (document.pointerLockElement) {
+        inputManager.resetAllInputs()
+        inputManager.releasePointerLockProgrammatically()
       }
-    } else if (me.weapon) {
-      autoMathRequestedRef.current = false
+      if (state.isAdsZoom) state.setAdsZoom(false)
+      if (state.isSprinting) state.setSprinting(false)
     }
 
     // Snap on phase change, respawn, or server-authorized Dash / Phase Blink
@@ -460,11 +419,16 @@ export function PlayerController() {
 
     const input = inputManager.getSnapshot()
     const { dx: mouseDx, dy: mouseDy } = inputManager.consumeMouseDelta()
+    const combatRoundActive =
+      state.room.phase === 'playing' &&
+      state.room.roundState === 'COMBAT_ACTIVE' &&
+      !state.mathModalOpen &&
+      !state.pauseOpen
 
     // Smooth controlled FOV transition for Ctrl Aim Mode
     if (cam instanceof THREE.PerspectiveCamera) {
       const targetFov =
-        input.aim && me.alive && !state.mathModalOpen && !state.pauseOpen
+        input.aim && me.alive && combatRoundActive
           ? aimFovForWeapon(me.weapon)
           : DEFAULT_FOV
       if (Math.abs(cam.fov - targetFov) > 0.08) {
@@ -473,7 +437,7 @@ export function PlayerController() {
       }
     }
 
-    if (state.mathModalOpen || state.pauseOpen) {
+    if (!combatRoundActive) {
       velXRef.current = 0
       velZRef.current = 0
       state.setSprinting(false)
@@ -515,7 +479,7 @@ export function PlayerController() {
       return
     }
 
-    if (state.room.phase === 'playing' && !state.mathModalOpen && !state.pauseOpen) {
+    if (combatRoundActive) {
       let forwardInput = 0
       let strafeInput = 0
       if (input.forward) forwardInput += 1

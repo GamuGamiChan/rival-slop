@@ -84,7 +84,6 @@ class CentralizedInputManager {
 
   private pendingMouseDx = 0
   private pendingMouseDy = 0
-  private lastRPressAt = 0
   private lastMathRPressAt = 0
 
   attach(canvas: HTMLCanvasElement, callbacks: InputCallbacks): void {
@@ -175,7 +174,7 @@ class CentralizedInputManager {
     this.dragAimActive = false
     this.pendingMouseDx = 0
     this.pendingMouseDy = 0
-    this.lastRPressAt = 0
+    this.lastMathRPressAt = 0
     if (wasAiming) {
       this.callbacks?.onAimChange(false)
     }
@@ -433,30 +432,10 @@ class CentralizedInputManager {
       return
     }
 
-    // Double-tap R (RR) opens Math Quiz & Weapon Roll; single R reloads weapon!
+    // R reloads the equipped weapon (Section 1: NO manual random weapon roll shortcut allowed!)
     if (e.code === 'KeyR' && !e.repeat && cb.isCombatPlayable()) {
       e.preventDefault()
-      const now = performance.now()
-      if (!cb.hasWeapon()) {
-        this.lastRPressAt = 0
-        cb.onDoubleRPress()
-        return
-      }
-      if (now - this.lastRPressAt <= RR_DOUBLE_TAP_MS) {
-        this.lastRPressAt = 0
-        cb.onDoubleRPress()
-        return
-      }
-      this.lastRPressAt = now
-      cb.onSingleRHint()
       cb.onReloadPress()
-      return
-    }
-
-    // Secondary [E] shortcut to open Math Quiz
-    if (e.code === 'KeyE' && !e.repeat && cb.isCombatPlayable()) {
-      e.preventDefault()
-      cb.onOpenOrToggleMath()
       return
     }
 

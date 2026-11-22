@@ -44,7 +44,7 @@ export function GameHUD() {
   const recentKills = useGameStore((s) => s.recentKills)
   const connectionStatus = useGameStore((s) => s.connectionStatus)
   const lastShotVisualAt = useGameStore((s) => s.lastShotVisualAt)
-  const rrHintUntil = useGameStore((s) => s.rrHintUntil)
+  const weaponPenalty = useGameStore((s) => s.weaponPenalty)
 
   const [nowTick, setNowTick] = useState(() => Date.now())
   const [perfNowTick, setPerfNowTick] = useState(() => performance.now())
@@ -83,6 +83,11 @@ export function GameHUD() {
     room.phase === 'playing' && room.matchEndsAt
       ? Math.max(0, room.matchEndsAt - serverNow)
       : room.matchDurationSec * 1000
+  const roundLeftMs =
+    room.phase === 'playing' && room.roundPhaseEndsAt
+      ? Math.max(0, room.roundPhaseEndsAt - serverNow)
+      : 0
+  const roundLeftSec = Math.max(0, Math.ceil(roundLeftMs / 1000))
   const countdownSec =
     room.phase === 'countdown' && room.countdownEndsAt
       ? Math.max(1, Math.ceil((room.countdownEndsAt - serverNow) / 1000))
@@ -126,7 +131,9 @@ export function GameHUD() {
   const showHitMarker = hitMarker && nowTick - hitMarker.timestamp < 320
   const showDamageFlash = lastDamageTaken && nowTick - lastDamageTaken.timestamp < 380
   const showSkillToast = lastSkillBanner && nowTick - lastSkillBanner.receivedAt < 2200
-  const showRrHint = rrHintUntil > nowTick && !mathModalOpen && !pauseOpen
+  const showPenaltyBanner = Boolean(
+    weaponPenalty && nowTick - weaponPenalty.timestamp < 3600 && !mathModalOpen,
+  )
   const shotBloomPx =
     lastShotVisualAt > 0 && perfNowTick - lastShotVisualAt < 140
       ? Math.round((1 - (perfNowTick - lastShotVisualAt) / 140) * (isAdsZoom ? 5 : 9))
@@ -134,10 +141,6 @@ export function GameHUD() {
   const respawnSec =
     !me.alive && me.respawnAt ? Math.max(0.1, (me.respawnAt - serverNow) / 1000).toFixed(1) : null
   const lowTime = !practiceMode && room.phase === 'playing' && timeLeftMs <= 15000
-
-  const openMathTerminal = () => {
-    window.dispatchEvent(new CustomEvent('math-rivals-open-math'))
-  }
 
   const triggerSkillFromHud = (slot: SkillSlot) => {
     window.dispatchEvent(new CustomEvent('math-rivals-cast-skill', { detail: slot }))
@@ -192,8 +195,8 @@ export function GameHUD() {
         </div>
       )}
 
-      {/* TOP CENTER — Synchronized 90s Timer + Team Scores */}
-      <div className="fixed top-4 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2">
+      {/* TOP CENTER — Synchronized Round State, Combat Round Timer & Team Scores */}
+      <div className="fixed top-4 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1.5">
         <div className="flex items-center gap-2">
           <div className="hud-panel hud-cut-sm border border-cyan-500/50 px-4 py-1.5 text-right min-w-[96px]">
             <div className="text-[9px] font-display tracking-[0.2em] text-cyan-400 uppercase">BLUE</div>
@@ -201,7 +204,7 @@ export function GameHUD() {
           </div>
 
           <div
-            className={`hud-panel hud-cut px-6 py-2 border-2 text-center min-w-[144px] ${
+            className={`hud-panel hud-cut px-6 py-2 border-2 text-center min-w-[164px] ${
               practiceMode
                 ? 'border-emerald-400/70'
                 : lowTime
@@ -209,8 +212,14 @@ export function GameHUD() {
                   : 'border-slate-600/80'
             }`}
           >
-            <div className="text-[9px] font-display tracking-[0.24em] text-slate-400 uppercase">
-              {practiceMode ? 'PRACTICE RANGE' : room.phase === 'countdown' ? 'STARTING' : 'MATCH TIME'}
+            <div
+              id="hud-round-state"
+              data-round-state={room.roundState}
+              data-round-number={room.roundNumber}
+              data-max-rounds={room.maxRounds ?? 10}
+              className="text-[9px] font-display tracking-[0.22em] text-cyan-300 uppercase"
+            >
+              ROUND {room.roundNumber}/{room.maxRounds ?? 10} • {room.roundState.replace('_', ' ')}
             </div>
             <div
               id="hud-match-timer"
@@ -220,6 +229,16 @@ export function GameHUD() {
             >
               {practiceMode ? 'FREE' : formatTimer(timeLeftMs)}
             </div>
+            {room.phase === 'playing' && (
+              <div
+                id="hud-round-timer"
+                className="text-[10px] font-mono text-amber-300 tracking-wider mt-0.5"
+              >
+                {room.roundState === 'COMBAT_ACTIVE'
+                  ? `MATH CHALLENGE IN ${roundLeftSec}s`
+                  : `PHASE TIMER: ${roundLeftSec}s`}
+              </div>
+            )}
           </div>
 
           <div className="hud-panel hud-cut-sm border border-rose-500/50 px-4 py-1.5 text-left min-w-[96px]">
@@ -341,7 +360,7 @@ export function GameHUD() {
             <div className="flex justify-between"><span className="font-mono text-cyan-300">SHIFT</span><span>Sprint (Hold)</span></div>
             <div className="flex justify-between"><span className="font-mono text-cyan-300">CTRL</span><span>Aim Mode (Hold)</span></div>
             <div className="flex justify-between"><span className="font-mono text-cyan-300">LMB</span><span>Shoot</span></div>
-            <div className="flex justify-between"><span className="font-mono text-cyan-300">R / RR</span><span>Reload / Math Roll</span></div>
+            <div className="flex justify-between"><span className="font-mono text-cyan-300">R</span><span>Reload</span></div>
             <div className="flex justify-between"><span className="font-mono text-amber-300">Q C X</span><span>Agent Skills</span></div>
             <div className="flex justify-between"><span className="font-mono text-cyan-300">SPACE</span><span>Jump</span></div>
             <div className="flex justify-between"><span className="font-mono text-cyan-300">ESC / TAB</span><span>Pause / Score</span></div>
@@ -353,7 +372,7 @@ export function GameHUD() {
       {room.phase === 'countdown' && countdownSec !== null && (
         <div className="fixed inset-0 flex flex-col items-center justify-center bg-slate-950/35">
           <div className="font-display text-xs tracking-[0.35em] text-cyan-300 uppercase mb-2">
-            AGENT {agentSpec.name} DEPLOYING • SOLVE &amp; FIGHT
+            AGENT {agentSpec.name} DEPLOYING • COMBAT ROUND → MATH CHALLENGE
           </div>
           <div
             id="hud-countdown-number"
@@ -362,13 +381,35 @@ export function GameHUD() {
             {countdownSec}
           </div>
           <div className="mt-4 px-4 py-2 bg-slate-950/85 border border-cyan-500/50 font-thai text-sm text-slate-200 text-center">
-            เริ่มเกมปุ๊บ! บังคับตอบโจทย์คณิตสุ่มปืน 8 แบบ • กด{' '}
-            <span className="font-display text-cyan-300 font-bold">[CTRL]</span> เล็ง •{' '}
-            <span className="font-display text-emerald-300 font-bold">[SHIFT]</span> วิ่ง •{' '}
-            <span className="font-display text-amber-300 font-bold">[RR]</span> สุ่มปืนใหม่!
+            ต่อสู้ให้จบแต่ละ Combat Round เพื่อเข้าสู่ช่วง Math Challenge ชิงอาวุธใหม่ (ตอบผิดถูกยึดอาวุธ &amp; -300 คะแนน!)
           </div>
         </div>
       )}
+
+      {/* CENTER — Round Transition Banner (ROUND_START / ROUND_END / NEXT_ROUND) */}
+      {room.phase === 'playing' &&
+        !mathModalOpen &&
+        (room.roundState === 'ROUND_START' ||
+          room.roundState === 'ROUND_END' ||
+          room.roundState === 'NEXT_ROUND') && (
+          <div
+            id="hud-round-transition-banner"
+            className="fixed top-28 left-1/2 -translate-x-1/2 px-6 py-3 bg-slate-950/90 border-2 border-cyan-400 text-center shadow-[0_0_32px_rgba(0,229,255,0.45)]"
+          >
+            <div className="font-display text-xl font-black tracking-widest text-white uppercase">
+              {room.roundState === 'ROUND_START'
+                ? `ROUND ${room.roundNumber} — COMBAT STARTING`
+                : room.roundState === 'ROUND_END'
+                  ? `ROUND ${room.roundNumber} COMPLETE — MATH CHALLENGE INCOMING`
+                  : `PREPARING ROUND ${room.roundNumber + 1}...`}
+            </div>
+            <div className="font-thai text-xs text-cyan-200 mt-0.5">
+              {room.roundState === 'ROUND_END'
+                ? 'ระบบหยุดการต่อสู้ชั่วคราว เตรียมตอบโจทย์คณิตศาสตร์พร้อมกันทุกคน!'
+                : 'เตรียมพร้อมเข้าปะทะในสนามประลอง!'}
+            </div>
+          </div>
+        )}
 
       {/* CENTER — Crosshair (Dynamic Firing Bloom + Precision Ctrl Aim Mode Reticle) + Hitmarker */}
       {room.phase === 'playing' && me.alive && !mathModalOpen && !pauseOpen && !(isAdsZoom && me.weapon === 'sniper') && (
@@ -483,31 +524,34 @@ export function GameHUD() {
         </div>
       )}
 
-      {/* CENTER PROMPT — Unarmed Math CTA + RR Double-Tap Hint */}
+      {/* CENTER PROMPT — Weapon Confiscation Penalty Banner / Unarmed Notice (NO manual random weapon button!) */}
       {room.phase === 'playing' && me.alive && !mathModalOpen && !pauseOpen && (
         <div className="fixed bottom-32 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2">
-          {showRrHint && (
+          {showPenaltyBanner && weaponPenalty && (
             <div
-              id="hud-rr-hint"
-              className="px-4 py-1.5 bg-cyan-500/20 border border-cyan-400 text-cyan-200 font-thai text-xs font-bold shadow-[0_0_20px_rgba(0,229,255,0.35)]"
+              id="hud-weapon-penalty-banner"
+              className="px-5 py-2.5 bg-rose-950/90 border-2 border-rose-500 text-rose-100 text-center shadow-[0_0_28px_rgba(244,63,94,0.6)] animate-bounce"
             >
-              กด <span className="font-display text-white">R</span> อีกครั้ง (<span className="font-display text-amber-300">RR</span>) เพื่อทำโจทย์คณิต &amp; สุ่มปืนใหม่!
+              <div className="font-display text-sm font-black tracking-wider uppercase text-rose-300">
+                WEAPON CONFISCATED • -{weaponPenalty.pointsDeducted} PTS
+              </div>
+              <div className="font-thai text-xs text-rose-100">
+                ตอบคำถามผิด! อาวุธถูกยึด รอจบ Combat Round นี้เพื่อแก้ตัวใน Math Challenge รอบถัดไป
+              </div>
             </div>
           )}
-          {!me.weapon && (
-            <button
-              id="btn-hud-open-math"
-              type="button"
-              onClick={openMathTerminal}
-              className="pointer-events-auto px-6 py-3 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-display font-black text-sm tracking-wider uppercase hud-cut-sm flex items-center gap-2.5 shadow-[0_0_32px_rgba(0,229,255,0.65)] ring-2 ring-cyan-300/60 transition cursor-pointer"
+          {!me.weapon && !showPenaltyBanner && (
+            <div
+              id="hud-unarmed-notice"
+              className="px-4 py-1.5 bg-rose-950/85 border border-rose-500/70 text-xs font-thai text-rose-200 flex items-center gap-2"
             >
-              <Brain className="w-5 h-5" />
-              กด [RR] ตอบโจทย์คณิต เพื่อสุ่มปืน (+100 PTS +1 ULT)
-            </button>
+              <Brain className="w-4 h-4 text-rose-400" />
+              สถานะมือเปล่า (UNARMED) — รอจบ Combat Round ({roundLeftSec}s) เพื่อตอบคณิตรับอาวุธใหม่
+            </div>
           )}
-          {me.weapon && !pointerLocked && !showRrHint && (
+          {me.weapon && !pointerLocked && (
             <div className="px-4 py-1 bg-slate-950/85 border border-cyan-500/45 text-[11px] font-thai tracking-wide text-cyan-200">
-              คลิกที่สนามเพื่อล็อกเมาส์ • กด <strong className="font-display text-emerald-300">[CTRL]</strong> เล็ง • <strong className="font-display text-cyan-300">[SHIFT]</strong> วิ่ง • <strong className="font-display text-amber-300">[RR]</strong> สุ่มปืน
+              คลิกที่สนามเพื่อล็อกเมาส์ • กด <strong className="font-display text-emerald-300">[CTRL]</strong> เล็ง • <strong className="font-display text-cyan-300">[SHIFT]</strong> วิ่ง • จบ Round สุ่มปืนผ่านโจทย์คณิตอัตโนมัติ
             </div>
           )}
         </div>
@@ -590,7 +634,7 @@ export function GameHUD() {
           <button
             id="btn-hud-skill-Q"
             type="button"
-            disabled={!me.alive || qCdSec > 0}
+            disabled={!me.alive || qCdSec > 0 || room.roundState !== 'COMBAT_ACTIVE'}
             onClick={() => triggerSkillFromHud('Q')}
             className={`hud-panel hud-cut-sm border px-3 py-2 min-w-[106px] text-left transition cursor-pointer disabled:cursor-not-allowed ${
               qCdSec === 0
@@ -618,7 +662,7 @@ export function GameHUD() {
           <button
             id="btn-hud-skill-C"
             type="button"
-            disabled={!me.alive || cCdSec > 0}
+            disabled={!me.alive || cCdSec > 0 || room.roundState !== 'COMBAT_ACTIVE'}
             onClick={() => triggerSkillFromHud('C')}
             className={`hud-panel hud-cut-sm border px-3 py-2 min-w-[106px] text-left transition cursor-pointer disabled:cursor-not-allowed ${
               cCdSec === 0
@@ -646,7 +690,7 @@ export function GameHUD() {
           <button
             id="btn-hud-skill-X"
             type="button"
-            disabled={!me.alive || !ultReady}
+            disabled={!me.alive || !ultReady || room.roundState !== 'COMBAT_ACTIVE'}
             onClick={() => triggerSkillFromHud('X')}
             className={`hud-panel hud-cut-sm border px-3.5 py-2 min-w-[132px] text-left transition cursor-pointer disabled:cursor-not-allowed ${
               ultReady
@@ -681,19 +725,8 @@ export function GameHUD() {
         </div>
       )}
 
-      {/* BOTTOM RIGHT — Equipped Weapon & Ammo + Quick Math Button */}
+      {/* BOTTOM RIGHT — Equipped Weapon & Ammo (NO Manual Random Weapon Button!) */}
       <div className="fixed bottom-4 right-4 flex flex-col items-end gap-2">
-        {room.phase === 'playing' && me.alive && me.weapon && (
-          <button
-            id="btn-hud-math-quick"
-            type="button"
-            onClick={openMathTerminal}
-            className="pointer-events-auto px-3 py-1.5 bg-slate-950/85 hover:bg-cyan-500/20 border border-cyan-500/50 text-cyan-300 text-[11px] font-display tracking-wider uppercase flex items-center gap-1.5 hud-cut-sm cursor-pointer"
-          >
-            <Brain className="w-3.5 h-3.5" /> [RR] MATH &amp; ROLL (+100)
-          </button>
-        )}
-
         <div className="hud-panel hud-cut border border-slate-700/80 p-3.5 min-w-[230px] space-y-1.5">
           {weaponSpec ? (
             <>
@@ -738,7 +771,7 @@ export function GameHUD() {
                     <span className="font-display text-sm text-slate-400">/ {weaponSpec.magSize}</span>
                   </div>
                   <span className="text-[10px] font-mono text-slate-400">
-                    {me.ammo === 0 ? '[R] RELOAD' : '[R] RELOAD • [RR] ROLL'}
+                    [R] RELOAD
                   </span>
                 </div>
               )}
@@ -746,14 +779,14 @@ export function GameHUD() {
           ) : (
             <div className="flex items-center justify-between gap-3 py-1">
               <div>
-                <div className="font-display text-sm font-bold text-slate-400 uppercase" id="hud-weapon-name">
+                <div className="font-display text-sm font-bold text-rose-400 uppercase" id="hud-weapon-name">
                   NO WEAPON EQUIPPED
                 </div>
-                <div className="font-thai text-xs text-cyan-300">
-                  กด [RR] ตอบคณิตเพื่อสุ่มปืน 8 แบบ
+                <div className="font-thai text-xs text-rose-200">
+                  อาวุธถูกยึด • รอจบ Round เพื่อทำโจทย์รับอาวุธใหม่
                 </div>
               </div>
-              <Crosshair className="w-6 h-6 text-slate-600" />
+              <Crosshair className="w-6 h-6 text-rose-500/70" />
             </div>
           )}
         </div>

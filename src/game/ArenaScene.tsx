@@ -1,9 +1,10 @@
 import { Canvas, useFrame } from '@react-three/fiber'
-import { useEffect, useMemo, useRef } from 'react'
+import { Suspense, useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { ARENA_BOUNDS, ARENA_BOXES, JUMP_PADS, TEAM_SPAWNS, type ArenaBox } from '../../shared/arena.ts'
 import { useGameStore } from '../store/useGameStore.ts'
 import { EffectsLayer } from './EffectsLayer.tsx'
+import { ImportedArenaProps } from './ImportedArenaProps.tsx'
 import { PlayerController } from './PlayerController.tsx'
 import { PracticeTargetsLayer } from './PracticeTargetsLayer.tsx'
 import { RivalAvatar } from './RivalAvatar.tsx'
@@ -733,6 +734,9 @@ function ArenaWorld() {
       <TeamBaseLandmarks />
       <CenterMathCoreReactor />
       <JumpPadsVisual />
+      <Suspense fallback={null}>
+        <ImportedArenaProps />
+      </Suspense>
 
       {/* Remote Players (Real Multiplayer) & Practice Target Drones (Solo Training Range) */}
       {screen === 'arena' &&

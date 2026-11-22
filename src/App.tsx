@@ -1,3 +1,4 @@
+import { AssetCreditsModal } from './components/AssetCreditsModal.tsx'
 import { ControlsSettingsModal } from './components/ControlsSettingsModal.tsx'
 import { GameHUD } from './components/GameHUD.tsx'
 import { LobbyScreen } from './components/LobbyScreen.tsx'
@@ -36,8 +37,9 @@ export default function App() {
       )}
       {screen === 'result' && <ResultScreen />}
 
-      {/* Main Menu Controls Guide & Settings Modal */}
+      {/* Main Menu Controls Guide, Settings & 3D Asset Credits Modals */}
       <ControlsSettingsModal />
+      <AssetCreditsModal />
     </div>
   )
 }

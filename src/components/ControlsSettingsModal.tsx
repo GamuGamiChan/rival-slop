@@ -8,7 +8,7 @@ const CONTROL_BINDINGS: Array<{ key: string; action: string; detail: string }> =
   { key: 'Shift (Hold)', action: 'Sprint', detail: 'กดค้างเพื่อวิ่งเร็วขณะเดินเท่านั้น' },
   { key: 'Ctrl (Hold)', action: 'Aim Mode', detail: 'กดค้าง (ซ้าย/ขวา) ซูมเป้าและลดแรงดีด' },
   { key: 'R', action: 'Reload', detail: 'รีโหลดกระสุนเมื่อกระสุนไม่เต็ม' },
-  { key: 'RR (2x R)', action: 'Math & Roll', detail: 'เปิดโจทย์คณิตเพื่อสุ่มปืน 1 ใน 8 กระบอก' },
+  { key: '1 - 4', action: 'Math Answer', detail: 'เลือกคำตอบโจทย์คณิตเมื่อจบแต่ละ Combat Round' },
   { key: 'Space', action: 'Jump', detail: 'กระโดด / ใช้ Jump Pad' },
   { key: 'Q / C / X', action: 'Agent Skills', detail: 'สกิล Tactical / Utility / Ultimate (4 แต้ม)' },
   { key: 'Tab', action: 'Scoreboard', detail: 'กดค้างดูตารางคะแนนสด' },

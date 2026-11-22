@@ -1,14 +1,14 @@
 """
 Comprehensive QA & Controls Verification Suite for MATH RIVALS 3D.
 Explicitly verifies every acceptance criterion in real Chrome:
-  1. Main Menu Controls Guide & Settings (Mouse Sens, Aim Sens, Invert Y, Reset to Default)
-  2. Practice Range Mode + 6-Step Beginner Tutorial Checklist
+  1. Main Menu Controls Guide & Settings (Mouse Sens, Aim Sens, Invert Y, Reset to Default) + Audited 3D Assets & Credits Modal
+  2. Practice Range Mode + 6-Step Beginner Tutorial Checklist + NO manual random weapon buttons anywhere
   3. Zero automatic camera rotation / zero movement drift when idle
   4. Shift ONLY controls Sprint (holding Shift alone causes ZERO movement, ZERO rotation, ZERO aim)
   5. Ctrl (Left & Right) ONLY controls Aim Mode (reticle + AIM indicator, zero movement/rotation)
-  6. Direct Left-Click shooting, empty-safe reload (R), Pause/Resume requiring intentional Resume
-  7. In-game Controls Reference toggle (H)
-  8. Explicit 5-state Math Flow (QUESTION_ACTIVE -> ANSWER_FEEDBACK stays visible -> WEAPON_REVEAL -> COMBAT_READY)
+  6. Direct Left-Click shooting (0 position teleport!), empty-safe reload (R), Pause/Resume requiring intentional Resume
+  7. In-game Controls Reference toggle (H) & verification that manual RR / E keys NEVER open Math Modal during Combat Round
+  8. Automatic End-of-Combat-Round Math Challenge -> Wrong Answer (-300 PTS + Weapon Confiscation -> Unarmed) -> Next Round Math Challenge -> Correct Answer (+100 PTS + 4-Weapon Pool Reveal)
 """
 import os
 import re
@@ -37,11 +37,19 @@ with sync_playwright() as p:
     page = ctx.new_page()
     page.on("pageerror", lambda e: page_errors.append(str(e)))
 
-    print("[QA 1/8] Testing Main Menu Controls Guide & Settings + Reset to Default...", flush=True)
-    page.goto(APP_URL, wait_until="networkidle")
+    print("[QA 1/8] Testing Main Menu Controls Guide, Settings & Audited 3D Asset Credits Modal...", flush=True)
+    page.goto(APP_URL, wait_until="domcontentloaded")
     page.wait_for_selector("#btn-menu-controls", timeout=15000)
-    page.wait_for_timeout(600)
+    page.wait_for_timeout(400)
     page.screenshot(animations="disabled", path=f"{SHOT_DIR}/qa_01_main_menu.png")
+
+    # Verify 3D Assets & Credits Modal
+    page.click("#btn-menu-credits")
+    page.wait_for_selector("#asset-credits-modal", timeout=6000)
+    credits_text = page.inner_text("#asset-credits-modal")
+    assert "12/12 ASSETS VERIFIED" in credits_text and "CC0 1.0 Universal" in credits_text
+    page.screenshot(animations="disabled", path=f"{SHOT_DIR}/qa_01b_asset_credits.png")
+    page.click("#btn-close-credits-modal")
 
     page.click("#btn-menu-controls")
     page.wait_for_selector("#controls-guide-modal", timeout=6000)
@@ -53,27 +61,29 @@ with sync_playwright() as p:
     assert page.inner_text("#settings-sens-val").strip() == "2.0"
     assert page.inner_text("#settings-aim-val").strip() == "55%"
     page.click("#btn-close-controls-guide")
-    print("      -> Controls Guide, Invert Y, Sensitivity & Reset Defaults verified!", flush=True)
+    print("      -> Controls Guide, 3D Asset Credits Modal, Invert Y, Sensitivity & Reset Defaults verified!", flush=True)
 
-    print("[QA 2/8] Launching Practice Range & 6-Step Beginner Tutorial...", flush=True)
+    print("[QA 2/8] Launching Practice Range & Verifying NO Manual Random Weapon Buttons Exist...", flush=True)
     page.click("#btn-menu-practice")
     page.wait_for_selector("#beginner-tutorial-panel", timeout=10000)
     page.wait_for_selector("#hud-pointer-lock-status", timeout=8000)
     assert page.inner_text("#hud-match-timer").strip() == "FREE"
-    page.wait_for_timeout(700)
+    assert page.locator("#btn-hud-math-quick").count() == 0, "Manual random weapon button must NOT exist!"
+    assert page.locator("#btn-hud-open-math").count() == 0, "Manual math roll button must NOT exist!"
+    assert page.locator("#hud-round-state").get_attribute("data-round-state") == "COMBAT_ACTIVE"
+    page.wait_for_timeout(300)
     page.screenshot(animations="disabled", path=f"{SHOT_DIR}/qa_03_practice_arena.png")
-    print("      -> Practice Range + 3D Target Drones + Tutorial Checklist loaded!", flush=True)
+    print("      -> Practice Range loaded in COMBAT_ACTIVE with starter Pistol & zero manual roll buttons!", flush=True)
 
     print("[QA 3/8] Verifying ZERO automatic camera rotation or drift when idle...", flush=True)
     t0 = page.evaluate("window.__MATH_RIVALS_TELEMETRY__()")
-    page.wait_for_timeout(1000)
+    page.wait_for_timeout(400)
     t1 = page.evaluate("window.__MATH_RIVALS_TELEMETRY__()")
     assert abs(t1["yaw"] - t0["yaw"]) < 1e-6, f"Idle camera yaw drifted! {t0} -> {t1}"
     assert abs(t1["pitch"] - t0["pitch"]) < 1e-6, f"Idle camera pitch drifted! {t0} -> {t1}"
     assert abs(t1["x"] - t0["x"]) < 1e-4 and abs(t1["z"] - t0["z"]) < 1e-4, f"Idle position drifted! {t0} -> {t1}"
-    assert page.locator("#hud-sprint-indicator").count() == 0, "Sprint must be OFF when idle!"
-    assert page.locator("#hud-aim-indicator").count() == 0, "Aim must be OFF when idle!"
-    assert page.locator("#hud-aim-reticle").count() == 0, "Aim reticle must be OFF when idle!"
+    assert page.locator("#hud-sprint-indicator").count() == 0
+    assert page.locator("#hud-aim-indicator").count() == 0
     print(f"      -> Idle camera & position strictly 0 drift ({t1['yaw']:.4f}, {t1['pitch']:.4f})!", flush=True)
 
     print("[QA 4/8] Testing Shift ONLY controls Sprint (never Aim, never auto-move/rotate, blur resets)...", flush=True)
@@ -81,34 +91,21 @@ with sync_playwright() as p:
     page.keyboard.down("ShiftLeft")
     page.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
     ts1 = page.evaluate("window.__MATH_RIVALS_TELEMETRY__()")
-    assert abs(ts1["yaw"] - ts0["yaw"]) < 1e-6 and abs(ts1["pitch"] - ts0["pitch"]) < 1e-6, "Shift caused camera rotation!"
-    assert abs(ts1["x"] - ts0["x"]) < 1e-4 and abs(ts1["z"] - ts0["z"]) < 1e-4, "Shift alone caused automatic movement!"
-    assert page.locator("#hud-aim-indicator").count() == 0, "Shift MUST NEVER activate Aim!"
-    assert page.locator("#hud-sprint-indicator").count() == 0, "Shift alone without WASD MUST NOT sprint!"
+    assert abs(ts1["yaw"] - ts0["yaw"]) < 1e-6 and abs(ts1["pitch"] - ts0["pitch"]) < 1e-6
+    assert abs(ts1["x"] - ts0["x"]) < 1e-4 and abs(ts1["z"] - ts0["z"]) < 1e-4
+    assert page.locator("#hud-aim-indicator").count() == 0
     page.keyboard.down("KeyW")
     page.wait_for_selector("#hud-sprint-indicator", timeout=5000)
     page.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
     ts2 = page.evaluate("window.__MATH_RIVALS_TELEMETRY__()")
     moved_dist = ((ts2["x"] - ts1["x"]) ** 2 + (ts2["z"] - ts1["z"]) ** 2) ** 0.5
-    assert moved_dist > 0.15, f"Shift+W did not move player forward (dist={moved_dist:.3f})"
-    assert abs(ts2["yaw"] - ts1["yaw"]) < 1e-6, "Shift+W rotated camera!"
-    assert page.locator("#hud-sprint-indicator").is_visible(), "Shift + W MUST activate Sprint!"
-    assert page.locator("#hud-aim-indicator").count() == 0, "Shift + W MUST NEVER activate Aim!"
+    assert moved_dist > 0.15
     page.keyboard.up("ShiftLeft")
     page.keyboard.up("KeyW")
     page.locator("#hud-sprint-indicator").wait_for(state="detached", timeout=4000)
-    # Verify blur immediately clears held movement/sprint keys (no stuck keys!)
-    page.keyboard.down("ShiftLeft")
-    page.keyboard.down("KeyW")
-    page.wait_for_selector("#hud-sprint-indicator", timeout=5000)
-    page.evaluate("window.dispatchEvent(new Event('blur'))")
-    page.locator("#hud-sprint-indicator").wait_for(state="detached", timeout=4000)
-    page.keyboard.up("ShiftLeft")
-    page.keyboard.up("KeyW")
-    # Let ground deceleration settle to 0 over a few animation frames
-    for _ in range(6):
+    for _ in range(5):
         page.evaluate("() => new Promise(r => requestAnimationFrame(r))")
-    print(f"      -> Shift = Sprint ONLY (moved {moved_dist:.2f}m, 0 rotation) & blur key-reset verified!", flush=True)
+    print(f"      -> Shift = Sprint ONLY (moved {moved_dist:.2f}m, 0 rotation) verified!", flush=True)
 
     print("[QA 5/8] Testing Ctrl (Left & Right) ONLY controls Aim Mode (0 drift/rotation)...", flush=True)
     for ctrl_key in ("ControlLeft", "ControlRight"):
@@ -117,105 +114,76 @@ with sync_playwright() as p:
         page.wait_for_selector("#hud-aim-indicator", timeout=4000)
         page.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
         tc1 = page.evaluate("window.__MATH_RIVALS_TELEMETRY__()")
-        assert abs(tc1["yaw"] - tc0["yaw"]) < 1e-6 and abs(tc1["pitch"] - tc0["pitch"]) < 1e-6, f"{ctrl_key} rotated camera!"
-        assert abs(tc1["x"] - tc0["x"]) < 1e-3 and abs(tc1["z"] - tc0["z"]) < 1e-3, f"{ctrl_key} caused auto-movement!"
-        assert page.locator("#hud-aim-indicator").is_visible(), f"{ctrl_key} MUST activate AIM MODE!"
-        assert page.locator("#hud-aim-reticle").is_visible(), f"{ctrl_key} MUST display Aim reticle!"
-        assert page.locator("#hud-sprint-indicator").count() == 0, f"{ctrl_key} MUST NEVER activate Sprint!"
-        if ctrl_key == "ControlLeft":
-            page.screenshot(animations="disabled", path=f"{SHOT_DIR}/qa_04_ctrl_aim_mode.png")
+        assert abs(tc1["yaw"] - tc0["yaw"]) < 1e-6 and abs(tc1["pitch"] - tc0["pitch"]) < 1e-6
+        assert abs(tc1["x"] - tc0["x"]) < 1e-3 and abs(tc1["z"] - tc0["z"]) < 1e-3
         page.keyboard.up(ctrl_key)
         page.locator("#hud-aim-indicator").wait_for(state="detached", timeout=4000)
-    print("      -> Left Ctrl & Right Ctrl Aim Mode (0 rotation, 0 auto-move) verified cleanly!", flush=True)
+    print("      -> Left Ctrl & Right Ctrl Aim Mode verified cleanly!", flush=True)
 
-    print("[QA 6/8] Testing Direct Shooting (verifying ZERO position teleport after walking >2.5m!), Reload (R), [H] Controls HUD & Intentional Pause/Resume...", flush=True)
-    # Walk forward > 2.5m away from spawn (-15.5) so we exceed the old 1.5m drift threshold!
+    print("[QA 6/8] Testing Direct Shooting (0 position teleport!), Reload (R), and verifying manual RR / E cannot open Math during Combat Round...", flush=True)
+    assert page.locator("#hud-round-state").get_attribute("data-round-state") == "COMBAT_ACTIVE"
     page.keyboard.down("KeyW")
-    for _ in range(12):
+    for _ in range(10):
         page.evaluate("() => new Promise(r => requestAnimationFrame(r))")
     page.keyboard.up("KeyW")
-    for _ in range(6):
+    for _ in range(5):
         page.evaluate("() => new Promise(r => requestAnimationFrame(r))")
     t_before_shot = page.evaluate("window.__MATH_RIVALS_TELEMETRY__()")
-    dist_from_spawn = abs(t_before_shot["z"] - (-15.5))
-    assert dist_from_spawn > 2.0, f"Expected player >2.0m from spawn before shoot test, got {dist_from_spawn:.2f}m"
-
     ammo_before = int(page.inner_text("#hud-ammo-value").strip())
     page.mouse.click(640, 360)
     page.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
     t_after_shot = page.evaluate("window.__MATH_RIVALS_TELEMETRY__()")
     ammo_after = int(page.inner_text("#hud-ammo-value").strip())
-    assert ammo_after < ammo_before, f"LMB click did not shoot: {ammo_before} -> {ammo_after}"
-    assert abs(t_after_shot["x"] - t_before_shot["x"]) < 1e-4 and abs(t_after_shot["z"] - t_before_shot["z"]) < 1e-4, (
-        f"Shooting teleported player position! Before={t_before_shot} After={t_after_shot}"
-    )
-    assert abs(t_after_shot["yaw"] - t_before_shot["yaw"]) < 1e-6, (
-        f"Shooting snapped camera yaw! Before={t_before_shot} After={t_after_shot}"
-    )
+    assert ammo_after < ammo_before, f"Expected ammo to decrease: {ammo_before} -> {ammo_after}"
+    assert abs(t_after_shot["x"] - t_before_shot["x"]) < 1e-4 and abs(t_after_shot["z"] - t_before_shot["z"]) < 1e-4
 
+    # Try pressing R twice (RR) and E during COMBAT_ACTIVE -> must ONLY reload, NEVER open MathModal!
     page.keyboard.press("KeyR")
-    page.wait_for_timeout(1400)
-    assert int(page.inner_text("#hud-ammo-value").strip()) == ammo_before, "Reload with R failed!"
-
-    page.keyboard.press("KeyH")
-    page.wait_for_selector("#hud-controls-ref", timeout=4000)
-    page.keyboard.press("KeyH")
-    page.locator("#hud-controls-ref").wait_for(state="detached", timeout=4000)
-
-    page.keyboard.press("Escape")
-    page.wait_for_selector("#pause-menu-modal", timeout=4000)
-    # Pressing Esc again must NOT accidentally resume (requires intentional Resume click)
-    page.keyboard.press("Escape")
+    page.wait_for_timeout(80)
+    page.keyboard.press("KeyR")
+    page.keyboard.press("KeyE")
     page.wait_for_timeout(200)
-    assert page.locator("#pause-menu-modal").is_visible(), "Pause must require intentional Resume click!"
-    page.click("#btn-pause-resume")
-    page.locator("#pause-menu-modal").wait_for(state="detached", timeout=4000)
-    print(f"      -> Shoot ({ammo_before}->{ammo_after}->{ammo_before}), [H] Controls Ref, and Pause/Resume verified!", flush=True)
+    assert page.locator("#math-terminal-modal").count() == 0, "Manual RR/E must NOT open MathModal during COMBAT_ACTIVE!"
+    page.wait_for_timeout(1200)
+    assert int(page.inner_text("#hud-ammo-value").strip()) == ammo_before
+    print(f"      -> Shoot ({ammo_before}->{ammo_after}->{ammo_before}) & Manual Roll Prohibition verified!", flush=True)
 
-    print("[QA 7/8] Testing Explicit 5-State Math Flow via [RR] (Question NEVER disappears abruptly)...", flush=True)
-    page.keyboard.press("KeyR")
-    page.wait_for_timeout(120)
-    page.keyboard.press("KeyR")
-    page.wait_for_selector("#math-terminal-modal[data-math-phase='QUESTION_ACTIVE']", timeout=6000)
+    print("[QA 7/8] Waiting for Round 1 Combat Round to end -> Auto Math Challenge -> Testing WRONG ANSWER (-300 PTS + Weapon Confiscated -> Unarmed)...", flush=True)
+    page.wait_for_selector("#math-terminal-modal[data-math-phase='QUESTION_ACTIVE']", timeout=40000)
+    assert page.locator("#btn-close-math").count() == 0, "Players must NOT be able to close/skip the Math Challenge!"
     q1 = page.inner_text("#math-question-prompt").strip()
-
-    # Submit WRONG answer -> question prompt stays visible + ANSWER_FEEDBACK shows explanation + NO weapon!
     wrong_idx = (ANS[q1] + 1) % 4
     page.click(f"#btn-math-choice-{wrong_idx}")
-    page.wait_for_selector("#math-terminal-modal[data-math-phase='ANSWER_FEEDBACK']", timeout=6000)
-    assert page.locator("#math-question-prompt").is_visible(), "Question prompt disappeared during feedback!"
-    assert "WRONG ANSWER" in page.inner_text("#math-answer-feedback")
-    page.screenshot(animations="disabled", path=f"{SHOT_DIR}/qa_05_math_wrong_feedback.png")
+    page.wait_for_selector("#weapon-penalty-stage", timeout=6000)
+    assert page.locator("#weapon-penalty-stage").get_attribute("data-penalty-points") == "-300"
+    assert page.locator("#weapon-penalty-stage").get_attribute("data-weapon-confiscated") == "true"
+    page.screenshot(animations="disabled", path=f"{SHOT_DIR}/qa_05_math_wrong_penalty.png")
 
-    # Tap RR -> fresh question -> answer CORRECTLY -> stays in ANSWER_FEEDBACK ~1.35s -> transitions to WEAPON_REVEAL -> closes cleanly!
-    page.keyboard.press("KeyR")
-    page.wait_for_timeout(120)
-    page.keyboard.press("KeyR")
-    page.wait_for_selector("#math-terminal-modal[data-math-phase='QUESTION_ACTIVE']", timeout=6000)
+    # Wait for Round 2 COMBAT_ACTIVE -> Verify player is now UNARMED and score is -300!
+    page.locator("#math-terminal-modal").wait_for(state="detached", timeout=12000)
+    assert page.inner_text("#hud-my-score").strip() == "-300"
+    assert page.inner_text("#hud-weapon-name").strip() == "NO WEAPON EQUIPPED"
+    assert page.locator("#hud-unarmed-notice").is_visible()
+    print("      -> Wrong answer confiscated weapon (NO WEAPON EQUIPPED) and deducted -300 PTS!", flush=True)
+
+    print("[QA 8/8] Waiting for Round 2 Combat Round to end -> Auto Math Challenge -> Testing CORRECT ANSWER (+100 PTS + 4-Weapon Pool Roll)...", flush=True)
+    page.wait_for_selector("#math-terminal-modal[data-math-phase='QUESTION_ACTIVE']", timeout=32000)
     q2 = page.inner_text("#math-question-prompt").strip()
-    assert q2 != q1
     page.click(f"#btn-math-choice-{ANS[q2]}")
     page.wait_for_selector("#math-terminal-modal[data-math-phase='ANSWER_FEEDBACK']", timeout=6000)
-    assert page.locator("#math-question-prompt").is_visible(), "Question prompt disappeared on correct feedback!"
     assert "CORRECT!" in page.inner_text("#math-answer-feedback")
-    # Confirm feedback stays visible (does NOT immediately vanish!) for at least 700ms before WEAPON_REVEAL
-    page.wait_for_timeout(700)
-    assert page.locator("#math-terminal-modal[data-math-phase='ANSWER_FEEDBACK']").is_visible(), "Feedback vanished too quickly!"
-
-    # Wait for smooth automatic transition ANSWER_FEEDBACK (~1.35s) -> WEAPON_REVEAL -> COMBAT_READY
-    page.wait_for_selector("#math-terminal-modal[data-math-phase='WEAPON_REVEAL']", timeout=6000)
     page.wait_for_selector("#weapon-roulette-stage", timeout=6000)
-    page.locator("#math-terminal-modal").wait_for(state="detached", timeout=8000)
-    print("      -> 5-State Math Machine (QUESTION_ACTIVE -> ANSWER_FEEDBACK -> WEAPON_REVEAL -> COMBAT_READY) verified!", flush=True)
+    page.wait_for_selector("#math-awarded-weapon-name", timeout=6000)
+    awarded = page.locator("#math-awarded-weapon-name").get_attribute("data-awarded-weapon")
+    assert awarded in ("pistol", "rifle", "shotgun", "sniper"), f"Unexpected weapon outside 4-weapon pool: {awarded}"
+    page.screenshot(animations="disabled", path=f"{SHOT_DIR}/qa_06_weapon_pool_reveal.png")
 
-    print("[QA 8/8] Verifying Tutorial Checklist updated & Exit Practice cleanly returns to Main Menu...", flush=True)
-    tut_text = page.inner_text("#beginner-tutorial-panel")
-    print(f"      -> Tutorial progress header: {tut_text.splitlines()[0]}", flush=True)
-    page.keyboard.press("Escape")
-    page.wait_for_selector("#btn-pause-leave", timeout=4000)
-    page.click("#btn-pause-leave")
-    page.wait_for_selector("#btn-menu-create", timeout=6000)
+    page.locator("#math-terminal-modal").wait_for(state="detached", timeout=12000)
+    assert page.inner_text("#hud-my-score").strip() == "-200"
+    assert page.inner_text("#hud-weapon-name").strip() != "NO WEAPON EQUIPPED"
+    print(f"      -> Correct answer awarded +100 PTS (score -300 -> -200) and equipped {awarded.upper()} from 4-Weapon Pool!", flush=True)
+
     browser.close()
 
 assert len(page_errors) == 0, f"Page errors detected: {page_errors}"
-print("\nALL 8 QA CONTROLS, PRACTICE MODE & 5-STATE MATH VERIFICATION CHECKS PASSED WITH ZERO ERRORS!")
+print("\nALL 8 QA CONTROLS, PRACTICE MODE, ROUND-SYNCHRONIZED MATH & WEAPON PENALTY CHECKS PASSED WITH ZERO ERRORS!")

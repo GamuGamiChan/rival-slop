@@ -520,6 +520,19 @@ export class P2PAdapter {
         } else if (t.type === 'ORBITAL_DETONATED' && t.hits && t.attackerId) {
           this.emitCombatHits(t.attackerId, t.hits)
           this.broadcastRoomState()
+        } else if (t.type === 'ROUND_STATE_CHANGED') {
+          if (t.assignedQuestion) {
+            this.broadcastToAll({
+              type: 'QUESTION_ASSIGNED',
+              question: t.assignedQuestion,
+            })
+          }
+          if (t.timeoutResults) {
+            for (const tr of t.timeoutResults) {
+              this.sendToTarget(tr.playerId, { type: 'ANSWER_RESULT', result: tr.result })
+            }
+          }
+          this.broadcastRoomState()
         } else if (
           t.type === 'PHASE_PLAYING' ||
           t.type === 'RESPAWNED' ||

@@ -1,7 +1,18 @@
-import { BookOpen, CheckCircle2, Dices, Loader2, Lock, Sparkles, X, XCircle } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Difficulty, WeaponId } from '../../shared/types.ts'
-import { WEAPON_IDS, WEAPONS } from '../../shared/weapons.ts'
+import {
+  AlertTriangle,
+  BookOpen,
+  CheckCircle2,
+  Clock,
+  Dices,
+  History,
+  Loader2,
+  ShieldAlert,
+  Sparkles,
+  XCircle,
+} from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import type { AnswerResultPayload, Difficulty, WeaponId } from '../../shared/types.ts'
+import { REWARD_WEAPON_POOL, WEAPONS } from '../../shared/weapons.ts'
 import { inputManager } from '../game/inputManager.ts'
 import { soundEngine } from '../game/sound.ts'
 import { multiplayerClient } from '../multiplayer/client.ts'
@@ -11,54 +22,45 @@ const DIFF_META: Record<Difficulty, { label: string; badgeClass: string; oddsNot
   easy: {
     label: 'EASY',
     badgeClass: 'bg-emerald-500/20 border-emerald-400/60 text-emerald-300',
-    oddsNote: 'สุ่มเร็ว • โอกาสได้ Pistol / SMG / Rifle สูง',
+    oddsNote: 'สุ่มอาวุธจาก Weapon Pool (Pistol / Rifle / Shotgun / Sniper)',
   },
   medium: {
     label: 'MEDIUM',
     badgeClass: 'bg-amber-500/20 border-amber-400/60 text-amber-300',
-    oddsNote: 'สมดุล • โอกาสได้ Rifle / Burst / Revolver / Shotgun',
+    oddsNote: 'สมดุล • โอกาสได้ Rifle / Shotgun / Sniper สูงขึ้น',
   },
   hard: {
     label: 'HARD',
     badgeClass: 'bg-rose-500/20 border-rose-400/60 text-rose-300',
-    oddsNote: 'ระดับท้าทาย • โอกาสได้ Sniper / LMG / Revolver สูงสุด!',
+    oddsNote: 'ระดับท้าทาย • โอกาสได้ Sniper / Shotgun / Rifle สูงสุด!',
   },
 }
 
-// Explicit timing constants: Feedback visible ~1.35s, then 8-weapon roulette ~1.15s + lock 0.9s
-const CORRECT_FEEDBACK_HOLD_MS = 1350
-const ROULETTE_MARKS_MS = [0, 55, 110, 170, 235, 305, 385, 475, 580, 700, 840, 1000, 1150]
+const ROULETTE_MARKS_MS = [0, 65, 135, 210, 295, 390, 495, 615, 750, 900, 1060]
 const TOTAL_STEPS = ROULETTE_MARKS_MS.length - 1
-const AUTO_CLOSE_AFTER_LOCK_MS = 900
 
 function WeaponRouletteStage({
   awardedWeapon,
   pointsAwarded,
-  onEnterCombat,
+  roundLeftSec,
 }: {
   awardedWeapon: WeaponId
   pointsAwarded: number
-  onEnterCombat: () => void
+  roundLeftSec: number
 }) {
-  const targetIdx = WEAPON_IDS.indexOf(awardedWeapon)
-  const startIdx = (targetIdx - TOTAL_STEPS + WEAPON_IDS.length * 4) % WEAPON_IDS.length
+  const pool = REWARD_WEAPON_POOL
+  const targetIdx = Math.max(0, pool.indexOf(awardedWeapon))
+  const startIdx = (targetIdx - TOTAL_STEPS + pool.length * 6) % pool.length
   const [step, setStep] = useState(0)
-  const onEnterCombatRef = useRef(onEnterCombat)
-
-  useEffect(() => {
-    onEnterCombatRef.current = onEnterCombat
-  }, [onEnterCombat])
 
   const locked = step >= TOTAL_STEPS
-  const activeIdx = (startIdx + Math.min(step, TOTAL_STEPS)) % WEAPON_IDS.length
-  const activeSpec = WEAPONS[WEAPON_IDS[activeIdx]]
+  const activeIdx = (startIdx + Math.min(step, TOTAL_STEPS)) % pool.length
+  const activeSpec = WEAPONS[pool[activeIdx]]
   const wonSpec = WEAPONS[awardedWeapon]
 
   useEffect(() => {
     const startedAt = performance.now()
     let lastStep = 0
-    let finished = false
-    const totalMs = ROULETTE_MARKS_MS[TOTAL_STEPS] + AUTO_CLOSE_AFTER_LOCK_MS
 
     const id = window.setInterval(() => {
       const elapsed = performance.now() - startedAt
@@ -75,24 +77,13 @@ function WeaponRouletteStage({
           soundEngine.playRollTick(nextStep)
         }
       }
-      if (!finished && elapsed >= totalMs) {
-        finished = true
+      if (nextStep >= TOTAL_STEPS) {
         window.clearInterval(id)
-        onEnterCombatRef.current()
       }
-    }, 65)
-
-    const fallbackId = window.setTimeout(() => {
-      if (!finished) {
-        finished = true
-        window.clearInterval(id)
-        onEnterCombatRef.current()
-      }
-    }, totalMs + 80)
+    }, 55)
 
     return () => {
       window.clearInterval(id)
-      window.clearTimeout(fallbackId)
     }
   }, [])
 
@@ -103,27 +94,29 @@ function WeaponRouletteStage({
           <CheckCircle2 className="w-7 h-7 text-emerald-400 shrink-0" />
           <div>
             <div className="font-display text-lg font-extrabold tracking-wide">
-              WEAPON ROLL • +{pointsAwarded} PTS • +1 ULT
+              CORRECT! WEAPON REWARD • +{pointsAwarded} PTS • +1 ULT
             </div>
             <div className="font-thai text-xs text-emerald-200/90">
               {locked
-                ? `ปลดล็อกอาวุธ: ${wonSpec.name.toUpperCase()} — พร้อมเข้าสู่สนามรบ!`
-                : 'กำลังสุ่มอาวุธไซไฟ 1 ใน 8 กระบอก...'}
+                ? `ได้รับอาวุธใหม่: ${wonSpec.name.toUpperCase()} — เตรียมเริ่ม Combat Round ถัดไป!`
+                : 'ระบบกลางกำลังสุ่มอาวุธจาก Weapon Pool (Pistol / Rifle / Shotgun / Sniper)...'}
             </div>
           </div>
         </div>
         <Dices className={`w-6 h-6 text-cyan-300 shrink-0 ${locked ? '' : 'animate-spin'}`} />
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        {WEAPON_IDS.map((wid, idx) => {
+      {/* 4 Official Weapon Pool Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+        {pool.map((wid, idx) => {
           const w = WEAPONS[wid]
           const isActive = idx === activeIdx
           const isWinner = locked && wid === awardedWeapon
           return (
             <div
               key={wid}
-              className={`p-2.5 border transition-all duration-75 ${
+              data-weapon-pool-item={wid}
+              className={`p-3 border transition-all duration-75 ${
                 isWinner
                   ? 'bg-slate-900 scale-[1.04] ring-2 ring-white/80'
                   : isActive
@@ -140,19 +133,23 @@ function WeaponRouletteStage({
               }}
             >
               <div className="flex items-center justify-between gap-1">
-                <span className="font-display text-[11px] font-black text-white truncate">
-                  {w.name.split(' ')[0]}
+                <span className="font-display text-xs font-black text-white uppercase tracking-wider">
+                  {wid.toUpperCase()}
                 </span>
                 <span
-                  className="h-2 w-2 rounded-full shrink-0"
+                  className="h-2.5 w-2.5 rounded-full shrink-0"
                   style={{ backgroundColor: w.accentColor }}
                 />
+              </div>
+              <div className="font-display text-[11px] text-slate-200 font-bold mt-0.5 truncate">
+                {w.name}
               </div>
               <div className="text-[10px] font-mono mt-0.5 truncate" style={{ color: w.accentColor }}>
                 {w.badge}
               </div>
-              <div className="text-[9px] font-display text-slate-400 mt-0.5">
-                DMG {w.damage}{w.pellets > 1 ? `×${w.pellets}` : ''} • {w.magSize}RD
+              <div className="text-[10px] font-display text-slate-400 mt-1">
+                DMG {w.damage}
+                {w.pellets > 1 ? `×${w.pellets}` : ''} • {w.magSize}RD
               </div>
             </div>
           )
@@ -160,32 +157,99 @@ function WeaponRouletteStage({
       </div>
 
       <div
-        className="p-3.5 bg-slate-950/90 border flex flex-wrap items-center justify-between gap-3"
+        className="p-4 bg-slate-950/90 border flex flex-wrap items-center justify-between gap-3"
         style={{ borderColor: locked ? wonSpec.accentColor : activeSpec.accentColor }}
       >
         <div>
           <div className="text-[10px] font-display tracking-[0.2em] uppercase text-slate-400">
-            {locked ? 'EQUIPPED WEAPON' : 'SPINNING ARSENAL...'}
+            {locked ? 'AUTHORITATIVE WEAPON REWARD EQUIPPED' : 'SERVER ROLLING WEAPON POOL...'}
           </div>
           <div
+            id="math-awarded-weapon-name"
+            data-awarded-weapon={awardedWeapon}
             className="font-display text-2xl font-black uppercase tracking-wide"
             style={{ color: locked ? wonSpec.accentColor : activeSpec.accentColor }}
           >
-            {locked ? wonSpec.name : activeSpec.name}
+            {locked ? `${awardedWeapon.toUpperCase()} — ${wonSpec.name}` : activeSpec.name}
           </div>
           <div className="font-thai text-xs text-slate-300 mt-0.5">
-            {locked ? wonSpec.tagline : 'กำลังสุ่มอาวุธจากคลัง 8 กระบอก...'}
+            {locked ? wonSpec.tagline : 'กำลังสุ่มจากคลังอาวุธหลัก 4 ชนิด...'}
           </div>
         </div>
 
-        <button
-          id="btn-math-enter-combat"
-          type="button"
-          onClick={onEnterCombat}
-          className="px-5 py-2.5 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-display font-black text-xs tracking-wider uppercase hud-cut-sm cursor-pointer shadow-[0_0_24px_rgba(0,229,255,0.45)]"
-        >
-          {locked ? 'เข้าสู่สนามรบ! (SPACE)' : 'ข้ามอนิเมชันเข้าสนามรบ (SPACE)'}
-        </button>
+        <div className="px-4 py-2 bg-cyan-950/80 border border-cyan-400/60 text-cyan-200 font-thai text-xs font-bold flex items-center gap-2">
+          <Clock className="w-4 h-4 text-cyan-300 animate-pulse" />
+          <span>เริ่ม Combat Round ถัดไปใน {roundLeftSec}s</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function WeaponPenaltyStage({
+  result,
+  roundLeftSec,
+}: {
+  result: AnswerResultPayload
+  roundLeftSec: number
+}) {
+  const lostSpec = result.confiscatedWeapon ? WEAPONS[result.confiscatedWeapon] : null
+
+  return (
+    <div
+      id="weapon-penalty-stage"
+      data-penalty-points={result.pointsAwarded}
+      data-weapon-confiscated={String(result.weaponConfiscated)}
+      className="space-y-3 p-4 bg-rose-950/80 border-2 border-rose-500/90 text-rose-100 shadow-[0_0_40px_rgba(244,63,94,0.32)] animate-pulse"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-rose-500/40 pb-3">
+        <div className="flex items-center gap-3">
+          <ShieldAlert className="w-8 h-8 text-rose-400 shrink-0" />
+          <div>
+            <div className="font-display text-lg sm:text-xl font-black tracking-wider text-rose-200 uppercase">
+              WRONG ANSWER! • WEAPON CONFISCATED • {result.pointsAwarded} PTS
+            </div>
+            <div className="font-thai text-xs sm:text-sm text-rose-200/95 font-semibold">
+              ตอบผิด! ระบบยึดอาวุธที่ถืออยู่ทันที และหักคะแนน 300 คะแนน (ไม่ได้รับอาวุธใหม่ในรอบนี้)
+            </div>
+          </div>
+        </div>
+        <span className="px-3 py-1 bg-rose-500/30 border border-rose-400 text-rose-100 font-display font-black text-sm">
+          {result.pointsAwarded} PTS
+        </span>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+        <div className="p-3 bg-slate-950/85 border border-rose-500/50 space-y-1">
+          <div className="font-display text-[10px] tracking-[0.18em] text-rose-300 uppercase">
+            WEAPON PENALTY STATUS
+          </div>
+          <div className="font-thai text-sm font-bold text-white">
+            {lostSpec
+              ? `ถูกยึดอาวุธ: ${lostSpec.name} → เข้าสู่สถานะ UNARMED (มือเปล่า)`
+              : 'สถานะ: UNARMED (ไม่มีอาวุธติดตัวในรอบถัดไป)'}
+          </div>
+          <div className="font-thai text-[11px] text-rose-300/90">
+            ต้องรอจบรอบต่อสู้ถัดไปและตอบคำถามให้ถูกต้องเพื่อรับอาวุธใหม่
+          </div>
+        </div>
+
+        <div className="p-3 bg-slate-950/85 border border-amber-400/50 space-y-1">
+          <div className="font-display text-[10px] tracking-[0.18em] text-amber-300 uppercase">
+            CORRECT SOLUTION &amp; EXPLANATION
+          </div>
+          <div className="font-thai text-sm font-bold text-amber-200">
+            คำตอบที่ถูกต้อง: {result.correctChoiceText}
+          </div>
+          <div className="font-thai text-[11px] text-slate-200 leading-relaxed">
+            วิธีคิด: {result.explanation}
+          </div>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-end text-xs font-thai text-rose-200 pt-1">
+        <Clock className="w-3.5 h-3.5 mr-1.5 text-rose-300" />
+        กำลังเข้าสู่ Combat Round ถัดไปในอีก {roundLeftSec} วินาที...
       </div>
     </div>
   )
@@ -194,50 +258,51 @@ function WeaponRouletteStage({
 export function MathModal() {
   const open = useGameStore((s) => s.mathModalOpen)
   const phase = useGameStore((s) => s.mathFlowPhase)
+  const room = useGameStore((s) => s.room)
   const activeQuestion = useGameStore((s) => s.activeQuestion)
   const submittedQuestion = useGameStore((s) => s.submittedQuestion)
   const selectedChoiceIndex = useGameStore((s) => s.selectedChoiceIndex)
   const lastAnswer = useGameStore((s) => s.lastAnswerResult)
+  const mathHistory = useGameStore((s) => s.mathHistory)
   const beginMathSubmission = useGameStore((s) => s.beginMathSubmission)
   const advanceMathToWeaponReveal = useGameStore((s) => s.advanceMathToWeaponReveal)
-  const completeMathFlowToCombat = useGameStore((s) => s.completeMathFlowToCombat)
-  const clearLastAnswer = useGameStore((s) => s.clearLastAnswer)
   const errorMessage = useGameStore((s) => s.errorMessage)
-  const practiceMode = useGameStore((s) => s.practiceMode)
+  const clockOffsetMs = useGameStore((s) => s.clockOffsetMs)
   const me = useGameStore(selectMyPlayer)
 
-  const [preferredDiff, setPreferredDiff] = useState<Difficulty | undefined>(undefined)
   const [hintQuestionId, setHintQuestionId] = useState<string | null>(null)
+  const [nowMs, setNowMs] = useState(() => Date.now())
+
+  useEffect(() => {
+    if (!open) return
+    const id = window.setInterval(() => setNowMs(Date.now()), 200)
+    return () => window.clearInterval(id)
+  }, [open])
 
   const visibleQuestion = activeQuestion ?? submittedQuestion
   const showHint = Boolean(visibleQuestion && hintQuestionId === visibleQuestion.id)
-  const noMoreQuestions = Boolean(errorMessage && errorMessage.includes('ครบทั้งคลัง'))
-  // In competitive matches, unarmed players MUST answer correctly before closing & fighting!
-  const mandatoryLock = Boolean(!practiceMode && me && !me.weapon && !noMoreQuestions)
 
-  const closeAndReturnToCombat = useCallback(() => {
-    const state = useGameStore.getState()
-    const currentMe = selectMyPlayer(state)
-    const exhausted = Boolean(state.errorMessage && state.errorMessage.includes('ครบทั้งคลัง'))
-    const hasEquippedOrAwardedWeapon = Boolean(
-      currentMe?.weapon || (state.lastAnswerResult?.correct && state.lastAnswerResult.awardedWeapon),
-    )
-    if (!state.practiceMode && currentMe && !hasEquippedOrAwardedWeapon && !exhausted) {
-      return
-    }
-    completeMathFlowToCombat()
-    inputManager.requestPointerLock()
-  }, [completeMathFlowToCombat])
-
-  const handleNextQuestion = useCallback(() => {
-    clearLastAnswer()
-    multiplayerClient.requestQuestion(preferredDiff)
-  }, [clearLastAnswer, preferredDiff])
+  const serverNow = nowMs + clockOffsetMs
+  const roundLeftSec =
+    room && room.roundPhaseEndsAt !== null
+      ? Math.max(0, Math.ceil((room.roundPhaseEndsAt - serverNow) / 1000))
+      : 0
+  const roundNumber = room?.roundNumber ?? 1
+  const roundState = room?.roundState ?? 'MATH_CHALLENGE'
+  const connectedCount = room ? room.players.filter((p) => p.connected).length : 1
+  const answeredCount = room?.answeredPlayerIds.length ?? 0
 
   const handleChoice = useCallback(
     (idx: number) => {
       const state = useGameStore.getState()
       if (state.mathFlowPhase !== 'QUESTION_ACTIVE' || !state.activeQuestion) return
+      if (
+        state.room &&
+        state.room.roundState !== 'MATH_CHALLENGE' &&
+        state.room.roundState !== 'ANSWER_SUBMITTED'
+      ) {
+        return
+      }
       const q = state.activeQuestion
       // Lock choice immediately in state machine to prevent duplicate submissions
       beginMathSubmission(q, idx)
@@ -246,18 +311,7 @@ export function MathModal() {
     [beginMathSubmission],
   )
 
-  // Explicit transition: ANSWER_FEEDBACK (Correct) stays visible ~1.35s -> WEAPON_REVEAL
-  useEffect(() => {
-    if (!open || phase !== 'ANSWER_FEEDBACK') return
-    const ans = useGameStore.getState().lastAnswerResult
-    if (!ans?.correct || !ans.awardedWeapon) return
-    const timer = window.setTimeout(() => {
-      useGameStore.getState().advanceMathToWeaponReveal()
-    }, CORRECT_FEEDBACK_HOLD_MS)
-    return () => window.clearTimeout(timer)
-  }, [open, phase])
-
-  // Subscribe cleanly to the single centralized InputManager (zero duplicate keydown listeners!)
+  // Subscribe cleanly to centralized InputManager for 1-4 answer hotkeys
   useEffect(() => {
     if (!open) return
     return inputManager.registerMathHandlers({
@@ -266,24 +320,16 @@ export function MathModal() {
       },
       onContinue: () => {
         const s = useGameStore.getState()
-        if (s.mathFlowPhase === 'ANSWER_FEEDBACK') {
-          if (s.lastAnswerResult?.correct && s.lastAnswerResult.awardedWeapon) {
-            advanceMathToWeaponReveal()
-          } else {
-            handleNextQuestion()
-          }
-        } else if (s.mathFlowPhase === 'WEAPON_REVEAL') {
-          closeAndReturnToCombat()
-        }
-      },
-      onDoubleR: () => {
-        const s = useGameStore.getState()
-        if (s.mathFlowPhase === 'ANSWER_FEEDBACK' && s.lastAnswerResult && !s.lastAnswerResult.correct) {
-          handleNextQuestion()
+        if (
+          s.mathFlowPhase === 'ANSWER_FEEDBACK' &&
+          s.lastAnswerResult?.correct &&
+          s.lastAnswerResult.awardedWeapon
+        ) {
+          advanceMathToWeaponReveal()
         }
       },
     })
-  }, [open, handleChoice, handleNextQuestion, advanceMathToWeaponReveal, closeAndReturnToCombat])
+  }, [open, handleChoice, advanceMathToWeaponReveal])
 
   if (!open) return null
 
@@ -305,24 +351,24 @@ export function MathModal() {
     <div
       id="math-terminal-modal"
       data-math-phase={phase}
+      data-round-state={roundState}
+      data-round-number={roundNumber}
       data-ui-interactive="true"
-      className="fixed inset-0 z-40 flex items-center justify-center p-4 bg-[#040812]/72 backdrop-blur-sm"
+      className="fixed inset-0 z-40 flex items-center justify-center p-4 bg-[#040812]/80 backdrop-blur-sm"
     >
-      <div className="w-full max-w-2xl hud-panel hud-cut border border-cyan-500/60 p-5 sm:p-6 space-y-4 shadow-[0_0_60px_rgba(0,229,255,0.22)] max-h-[92vh] overflow-y-auto">
-        {/* Top Bar + Explicit Flow Phase Indicator */}
+      <div className="w-full max-w-2xl hud-panel hud-cut border border-cyan-500/70 p-5 sm:p-6 space-y-4 shadow-[0_0_60px_rgba(0,229,255,0.25)] max-h-[92vh] overflow-y-auto">
+        {/* Top Bar: Round-Synchronized Math Challenge Header (No skip / No manual close) */}
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-display text-xs tracking-[0.2em] text-cyan-300 uppercase flex items-center gap-1.5">
-              <Sparkles className="w-4 h-4" /> MATH &amp; WEAPON ROLL [RR]
+              <Sparkles className="w-4 h-4" /> ROUND {roundNumber}/{room?.maxRounds ?? 10} MATH CHALLENGE
             </span>
-            {mandatoryLock && (
-              <span
-                id="math-mandatory-badge"
-                className="inline-flex items-center gap-1 text-[11px] font-thai font-bold px-2.5 py-0.5 bg-amber-500/20 border border-amber-400/70 text-amber-200"
-              >
-                <Lock className="w-3 h-3" /> บังคับตอบคณิตเพื่อสุ่มปืนก่อนเข้าสนาม!
-              </span>
-            )}
+            <span
+              id="math-mandatory-badge"
+              className="inline-flex items-center gap-1 text-[11px] font-thai font-bold px-2.5 py-0.5 bg-amber-500/20 border border-amber-400/70 text-amber-200"
+            >
+              จบ Combat Round • บังคับตอบคำถามพร้อมกันทั้งห้อง (ห้ามข้าม)
+            </span>
             {visibleQuestion && phase !== 'WEAPON_REVEAL' && (
               <span
                 className={`text-[11px] font-display font-bold px-2.5 py-0.5 border ${
@@ -334,22 +380,35 @@ export function MathModal() {
             )}
           </div>
 
-          {!mandatoryLock && (
-            <button
-              id="btn-close-math"
-              type="button"
-              onClick={closeAndReturnToCombat}
-              className="p-1.5 text-slate-400 hover:text-white bg-slate-900 border border-slate-700 cursor-pointer"
-              title="ปิดหน้าต่าง (ESC)"
+          <div className="flex items-center gap-2">
+            <span
+              id="math-answered-counter"
+              className="px-2.5 py-1 bg-slate-900 border border-slate-700 text-[11px] font-mono text-slate-300"
             >
-              <X className="w-4 h-4" />
-            </button>
-          )}
+              ตอบแล้ว {answeredCount}/{connectedCount}
+            </span>
+            <span
+              id="math-challenge-timer"
+              className={`px-2.5 py-1 border font-mono text-xs font-bold flex items-center gap-1 ${
+                roundLeftSec <= 5
+                  ? 'bg-rose-950/90 border-rose-500 text-rose-200 animate-pulse'
+                  : 'bg-cyan-950/80 border-cyan-400/60 text-cyan-200'
+              }`}
+            >
+              <Clock className="w-3.5 h-3.5" />
+              {roundLeftSec}s
+            </span>
+          </div>
         </div>
 
-        {/* Visual 4-Stage State Machine Stepper (never disappears abruptly!) */}
+        {/* Visual 4-Stage State Machine Stepper */}
         <div className="grid grid-cols-4 gap-1.5 text-[10px] font-thai">
-          {['1. ทำโจทย์', '2. ส่งคำตอบ', '3. ผล & เฉลย', '4. สุ่มรับปืน'].map((label, idx) => (
+          {[
+            '1. โจทย์ประจำรอบ',
+            '2. ล็อกคำตอบ',
+            '3. ตรวจผล & เฉลย',
+            '4. รับปืน / บทลงโทษ',
+          ].map((label, idx) => (
             <div
               key={label}
               className={`px-2 py-1 text-center border transition ${
@@ -372,6 +431,14 @@ export function MathModal() {
               <span className="font-thai text-cyan-200 bg-cyan-950/60 border border-cyan-500/30 px-2.5 py-1">
                 หัวข้อ: {visibleQuestion.topic}
               </span>
+              { me && (
+                <span className="font-thai text-xs text-slate-300">
+                  อาวุธที่ถืออยู่ปัจจุบัน:{' '}
+                  <strong className="text-cyan-300">
+                    {me.weapon ? WEAPONS[me.weapon].name : 'UNARMED (มือเปล่า)'}
+                  </strong>
+                </span>
+              )}
               {phase === 'QUESTION_ACTIVE' && (
                 <button
                   type="button"
@@ -384,7 +451,7 @@ export function MathModal() {
               )}
               {phase === 'ANSWER_SUBMITTED' && (
                 <span className="inline-flex items-center gap-1.5 text-cyan-300 font-thai font-semibold">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> กำลังตรวจสอบคำตอบ...
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> ส่งคำตอบแล้ว • รอระบบกลางประมวลผล...
                 </span>
               )}
             </div>
@@ -397,7 +464,7 @@ export function MathModal() {
               {visibleQuestion.prompt}
             </div>
 
-            {/* Choice Grid (locked cleanly after submission; highlights player pick + right answer in feedback) */}
+            {/* Choice Grid (locked cleanly after submission) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               {visibleQuestion.choices.map((choice, idx) => {
                 const isSelected = selectedChoiceIndex === idx
@@ -447,49 +514,40 @@ export function MathModal() {
 
             {/* Rules strip during active question */}
             {phase === 'QUESTION_ACTIVE' && (
-              <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-slate-950/75 border border-slate-800 text-[11px]">
-                <span className="font-thai text-emerald-300">
-                  ✓ ตอบถูก: สุ่มปืน 1 ใน 8 กระบอก (+100 PTS +1 ULT)
+              <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-slate-950/85 border border-slate-800 text-[11px]">
+                <span className="font-thai text-emerald-300 font-semibold">
+                  ✓ ตอบถูก: สุ่มปืนใหม่ (Pistol / Rifle / Shotgun / Sniper) +100 PTS
                 </span>
-                <span className="font-thai text-rose-300 font-semibold">
-                  ✕ ตอบผิด: ไม่ได้รับปืน (+0 PTS)
+                <span className="font-thai text-rose-400 font-bold flex items-center gap-1">
+                  <AlertTriangle className="w-3.5 h-3.5" /> ✕ ตอบผิด / หมดเวลา: ยึดอาวุธที่ถืออยู่ทันที &amp; -300 PTS
                 </span>
                 <span className="font-mono text-cyan-300">กดปุ่ม 1–4 ตอบด่วน</span>
               </div>
             )}
 
-            {/* STAGE 3: EXPLICIT ANSWER_FEEDBACK PANEL (Visible ~1.35s on correct, persistent on wrong) */}
+            {/* STAGE 3: EXPLICIT ANSWER_FEEDBACK PANEL */}
             {phase === 'ANSWER_FEEDBACK' && lastAnswer && (
               <div className="space-y-3">
-                <div
-                  id="math-answer-feedback"
-                  className={`p-4 border flex items-start gap-3 ${
-                    lastAnswer.correct
-                      ? 'bg-emerald-950/70 border-emerald-400/80 text-emerald-100'
-                      : 'bg-rose-950/70 border-rose-500/80 text-rose-100'
-                  }`}
-                >
-                  {lastAnswer.correct ? (
+                {lastAnswer.correct ? (
+                  <div
+                    id="math-answer-feedback"
+                    data-answer-correct="true"
+                    className="p-4 border bg-emerald-950/75 border-emerald-400/80 text-emerald-100 flex items-start gap-3"
+                  >
                     <CheckCircle2 className="w-7 h-7 text-emerald-400 shrink-0 mt-0.5" />
-                  ) : (
-                    <XCircle className="w-7 h-7 text-rose-400 shrink-0 mt-0.5" />
-                  )}
-                  <div className="space-y-1 flex-1">
-                    <div className="font-display text-base sm:text-lg font-black tracking-wide">
-                      {lastAnswer.correct
-                        ? `CORRECT! +${lastAnswer.pointsAwarded} PTS • +1 ULT`
-                        : 'WRONG ANSWER • ตอบผิดไม่ได้รับปืน (+0 PTS / NO WEAPON)'}
-                    </div>
-                    <div className="font-thai text-sm text-amber-200 font-semibold">
-                      คำตอบที่ถูกต้อง: {lastAnswer.correctChoiceText}
-                    </div>
-                    <p className="font-thai text-xs sm:text-sm text-slate-200 leading-relaxed">
-                      วิธีคิด: {lastAnswer.explanation}
-                    </p>
-                    {lastAnswer.correct && (
+                    <div className="space-y-1 flex-1">
+                      <div className="font-display text-base sm:text-lg font-black tracking-wide">
+                        CORRECT! +{lastAnswer.pointsAwarded} PTS • +1 ULT
+                      </div>
+                      <div className="font-thai text-sm text-amber-200 font-semibold">
+                        คำตอบที่ถูกต้อง: {lastAnswer.correctChoiceText}
+                      </div>
+                      <p className="font-thai text-xs sm:text-sm text-slate-200 leading-relaxed">
+                        คำอธิบาย: {lastAnswer.explanation}
+                      </p>
                       <div className="pt-1.5 flex items-center justify-between gap-2">
                         <span className="font-thai text-xs text-cyan-300 font-semibold">
-                          กำลังเข้าสู่หน้าสุ่มอาวุธ 1 ใน 8 กระบอก...
+                          กำลังเปิดระบบสุ่มอาวุธประจำรอบ (Weapon Reveal)...
                         </span>
                         <button
                           id="btn-math-skip-to-roll"
@@ -497,59 +555,14 @@ export function MathModal() {
                           onClick={advanceMathToWeaponReveal}
                           className="px-3 py-1 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-display font-black text-[11px] uppercase hud-cut-sm cursor-pointer"
                         >
-                          สุ่มปืนเลย (SPACE)
+                          เปิดผลสุ่มอาวุธ (SPACE)
                         </button>
                       </div>
-                    )}
-                    {!lastAnswer.correct && mandatoryLock && (
-                      <p className="font-thai text-xs text-amber-300 font-semibold pt-1">
-                        🔒 คุณยังไม่มีปืน — ต้องตอบโจทย์คณิตข้อใหม่ให้ถูกต้องก่อนจึงจะสุ่มปืนได้!
-                      </p>
-                    )}
+                    </div>
                   </div>
-                </div>
-
-                {/* Wrong Answer Action Controls */}
-                {!lastAnswer.correct && (
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs font-thai text-slate-400 mr-1">ระดับข้อถัดไป:</span>
-                      {([undefined, 'easy', 'medium', 'hard'] as Array<Difficulty | undefined>).map((d) => (
-                        <button
-                          key={d ?? 'any'}
-                          type="button"
-                          onClick={() => setPreferredDiff(d)}
-                          className={`px-2.5 py-1 text-[11px] font-display uppercase border cursor-pointer ${
-                            preferredDiff === d
-                              ? 'bg-cyan-500/25 border-cyan-400 text-cyan-200'
-                              : 'bg-slate-900 border-slate-700 text-slate-400'
-                          }`}
-                        >
-                          {d ?? 'MIX'}
-                        </button>
-                      ))}
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <button
-                        id="btn-math-next"
-                        type="button"
-                        onClick={handleNextQuestion}
-                        className="px-5 py-2.5 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-display font-black text-xs tracking-wider uppercase hud-cut-sm cursor-pointer shadow-[0_0_24px_rgba(0,229,255,0.4)]"
-                      >
-                        ทำโจทย์ข้อใหม่เพื่อสุ่มปืน ([RR] / SPACE)
-                      </button>
-                      {!mandatoryLock && (
-                        <button
-                          id="btn-math-back"
-                          type="button"
-                          onClick={closeAndReturnToCombat}
-                          className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 font-display text-xs uppercase cursor-pointer"
-                        >
-                          BACK TO ARENA
-                        </button>
-                      )}
-                    </div>
+                ) : (
+                  <div id="math-answer-feedback" data-answer-correct="false">
+                    <WeaponPenaltyStage result={lastAnswer} roundLeftSec={roundLeftSec} />
                   </div>
                 )}
               </div>
@@ -563,41 +576,54 @@ export function MathModal() {
           </div>
         )}
 
-        {/* STAGE 4: WEAPON_REVEAL (Animated 8-Weapon Neon Roulette Spinner) */}
-        {phase === 'WEAPON_REVEAL' && lastAnswer?.correct && lastAnswer.awardedWeapon && (
-          <WeaponRouletteStage
-            key={lastAnswer.questionId}
-            awardedWeapon={lastAnswer.awardedWeapon}
-            pointsAwarded={lastAnswer.pointsAwarded}
-            onEnterCombat={closeAndReturnToCombat}
-          />
+        {/* STAGE 4: WEAPON_REVEAL (Either 4-Weapon Pool Roulette on Correct OR Weapon Confiscation Card on Wrong) */}
+        {phase === 'WEAPON_REVEAL' && lastAnswer && (
+          <>
+            {lastAnswer.correct && lastAnswer.awardedWeapon ? (
+              <WeaponRouletteStage
+                key={`${lastAnswer.roundNumber}-${lastAnswer.questionId}`}
+                awardedWeapon={lastAnswer.awardedWeapon}
+                pointsAwarded={lastAnswer.pointsAwarded}
+                roundLeftSec={roundLeftSec}
+              />
+            ) : (
+              <WeaponPenaltyStage result={lastAnswer} roundLeftSec={roundLeftSec} />
+            )}
+          </>
         )}
 
-        {/* Loading or Error Fallback */}
-        {!visibleQuestion && phase !== 'WEAPON_REVEAL' && (
-          <div className="py-8 text-center space-y-3">
-            <div className="font-thai text-slate-300">
-              {errorMessage || 'กำลังสุ่มโจทย์คณิตศาสตร์จากเซิร์ฟเวอร์...'}
+        {/* Question & Reward / Penalty History Log */}
+        {mathHistory.length > 0 && (
+          <div
+            id="math-history-list"
+            className="pt-2 border-t border-slate-800/90 space-y-1.5"
+          >
+            <div className="flex items-center gap-1.5 text-[10px] font-display tracking-[0.18em] text-slate-400 uppercase">
+              <History className="w-3.5 h-3.5 text-cyan-400" />
+              <span>ROUND QUESTION &amp; WEAPON REWARD HISTORY</span>
             </div>
-            <div className="flex items-center justify-center gap-2">
-              {!noMoreQuestions && (
-                <button
-                  type="button"
-                  onClick={() => multiplayerClient.requestQuestion(preferredDiff)}
-                  className="px-4 py-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-display font-bold text-xs uppercase cursor-pointer"
+            <div className="max-h-24 overflow-y-auto space-y-1 pr-1">
+              {mathHistory.slice(0, 4).map((h, i) => (
+                <div
+                  key={`${h.roundNumber}-${h.questionId}-${i}`}
+                  className={`px-2.5 py-1 border text-[11px] font-thai flex flex-wrap items-center justify-between gap-2 ${
+                    h.correct
+                      ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-200'
+                      : 'bg-rose-950/40 border-rose-500/40 text-rose-200'
+                  }`}
                 >
-                  RETRY QUESTION
-                </button>
-              )}
-              {!mandatoryLock && (
-                <button
-                  type="button"
-                  onClick={closeAndReturnToCombat}
-                  className="px-4 py-2 bg-slate-800 text-slate-200 text-xs font-display uppercase cursor-pointer"
-                >
-                  RETURN TO ARENA
-                </button>
-              )}
+                  <span className="truncate max-w-[55%]">
+                    <strong>R{h.roundNumber}</strong> • {h.topic}
+                  </span>
+                  <span className="font-mono text-[10px] font-bold">
+                    {h.correct
+                      ? `CORRECT (+${h.pointsDelta} PTS • ${h.awardedWeapon?.toUpperCase()})`
+                      : `WRONG (${h.pointsDelta} PTS • ${
+                          h.weaponConfiscated ? 'WEAPON CONFISCATED' : 'UNARMED'
+                        })`}
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
         )}

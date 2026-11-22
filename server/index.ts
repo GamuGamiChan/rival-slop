@@ -522,6 +522,22 @@ setInterval(() => {
     } else if (t.type === 'ORBITAL_DETONATED' && t.hits && t.attackerId) {
       emitCombatHits(t.roomCode, t.attackerId, t.hits)
       broadcastRoomState(t.roomCode)
+    } else if (t.type === 'ROUND_STATE_CHANGED') {
+      if (t.assignedQuestion) {
+        broadcastToRoom(t.roomCode, {
+          type: 'QUESTION_ASSIGNED',
+          question: t.assignedQuestion,
+        })
+      }
+      if (t.timeoutResults) {
+        for (const tr of t.timeoutResults) {
+          const sock = playerSockets.get(tr.playerId)
+          if (sock) {
+            sendToSession(sock, { type: 'ANSWER_RESULT', result: tr.result })
+          }
+        }
+      }
+      broadcastRoomState(t.roomCode)
     } else if (
       t.type === 'PHASE_PLAYING' ||
       t.type === 'RESPAWNED' ||
