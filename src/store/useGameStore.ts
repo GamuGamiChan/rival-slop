@@ -19,7 +19,18 @@ import {
 
 export type ScreenMode = 'menu' | 'room' | 'lobby' | 'arena' | 'result'
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting'
-export type TransportMode = 'ws' | 'p2p' | 'supabase' | 'practice'
+export type TransportMode = 'ws' | 'p2p' | 'supabase' | 'practice' | 'ai'
+
+function detectInitialMobileControls(): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    if (window.matchMedia?.('(pointer: coarse)').matches) return true
+    if (navigator.maxTouchPoints > 0 && window.innerWidth <= 1024) return true
+  } catch {
+    // Ignore
+  }
+  return false
+}
 
 /**
  * Explicit Math Question & Weapon Reward state machine.
@@ -282,6 +293,7 @@ export interface GameState {
   creditsModalOpen: boolean
   questionEditorOpen: boolean
   questionSetsVersion: number
+  mobileControlsEnabled: boolean
   settingsModalOpen: boolean
   showControlsRef: boolean
   tutorialOpen: boolean
@@ -311,6 +323,7 @@ export interface GameState {
   setCreditsModalOpen: (open: boolean) => void
   setQuestionEditorOpen: (open: boolean) => void
   bumpQuestionSetsVersion: () => void
+  setMobileControlsEnabled: (enabled: boolean) => void
   setSettingsModalOpen: (open: boolean) => void
   toggleControlsRef: () => void
   setTutorialOpen: (open: boolean) => void
@@ -451,6 +464,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   creditsModalOpen: false,
   questionEditorOpen: false,
   questionSetsVersion: 0,
+  mobileControlsEnabled: detectInitialMobileControls(),
   settingsModalOpen: false,
   showControlsRef: false,
   tutorialOpen: false,
@@ -498,6 +512,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   setCreditsModalOpen: (creditsModalOpen) => set({ creditsModalOpen }),
   setQuestionEditorOpen: (questionEditorOpen) => set({ questionEditorOpen }),
   bumpQuestionSetsVersion: () => set((s) => ({ questionSetsVersion: s.questionSetsVersion + 1 })),
+  setMobileControlsEnabled: (mobileControlsEnabled) => set({ mobileControlsEnabled }),
   setSettingsModalOpen: (settingsModalOpen) => set({ settingsModalOpen }),
   toggleControlsRef: () => set((s) => ({ showControlsRef: !s.showControlsRef })),
   setTutorialOpen: (tutorialOpen) => set({ tutorialOpen }),

@@ -13,6 +13,7 @@ import { UNARMED_MELEE_SPEC, WEAPONS } from '../../shared/weapons.ts'
 import { multiplayerClient } from '../multiplayer/client.ts'
 import { selectMyPlayer, useGameStore } from '../store/useGameStore.ts'
 import { inputManager } from './inputManager.ts'
+import { mobileInput } from './mobileControlsState.ts'
 import { soundEngine } from './sound.ts'
 
 const WALK_SPEED = 7.8
@@ -473,6 +474,20 @@ export function PlayerController() {
       if (input.arrowRight) yawRef.current -= 2.1 * dt
       if (input.arrowUp) pitchRef.current = Math.min(Math.PI / 2 - 0.08, pitchRef.current + 1.5 * dt)
       if (input.arrowDown) pitchRef.current = Math.max(-Math.PI / 2 + 0.08, pitchRef.current - 1.5 * dt)
+
+      if (mobileInput.lookDeltaYaw !== 0 || mobileInput.lookDeltaPitch !== 0) {
+        const ySign = state.invertY ? 1 : -1
+        const adsFactor = state.isAdsZoom ? state.aimSensitivityMultiplier : 1
+        const sens = state.mouseSensitivity * adsFactor
+        yawRef.current += mobileInput.lookDeltaYaw * sens
+        pitchRef.current = Math.max(
+          -Math.PI / 2 + 0.08,
+          Math.min(Math.PI / 2 - 0.08, pitchRef.current + mobileInput.lookDeltaPitch * sens * ySign),
+        )
+        mobileInput.lookDeltaYaw = 0
+        mobileInput.lookDeltaPitch = 0
+        state.markTutorialStep('aimed')
+      }
     }
 
     // Apply rotation strictly inside this single stable frame loop
@@ -492,19 +507,25 @@ export function PlayerController() {
     }
 
     if (combatRoundActive) {
-      let forwardInput = 0
-      let strafeInput = 0
+      let forwardInput = mobileInput.moveY
+      let strafeInput = mobileInput.moveX
       if (input.forward) forwardInput += 1
       if (input.backward) forwardInput -= 1
       if (input.right) strafeInput += 1
       if (input.left) strafeInput -= 1
 
-      const hasMoveInput = forwardInput !== 0 || strafeInput !== 0
+      const hasMoveInput = Math.abs(forwardInput) > 0.05 || Math.abs(strafeInput) > 0.05
       const serverNow = Date.now() + state.clockOffsetMs
       const overdriveMult = me.overdriveUntil && serverNow < me.overdriveUntil ? 1.3 : 1.0
 
+      const isAiming = input.aim || mobileInput.aiming
+      if (state.mobileControlsEnabled && state.isAdsZoom !== isAiming) {
+        state.setAdsZoom(isAiming)
+      }
+
       // Shift ONLY sprints while actively moving (never causes automatic movement or aim!)
-      const activeSprint = input.sprint && hasMoveInput && !input.aim
+      const joystickMag = Math.hypot(mobileInput.moveX, mobileInput.moveY)
+      const activeSprint = (input.sprint || mobileInput.sprinting || joystickMag > 0.85) && hasMoveInput && !isAiming
       state.setSprinting(activeSprint)
       if (activeSprint) {
         state.markTutorialStep('sprinted')
@@ -512,7 +533,7 @@ export function PlayerController() {
 
       const baseSpeed = activeSprint
         ? SPRINT_SPEED
-        : input.aim
+        : isAiming
           ? WALK_SPEED * 0.65
           : WALK_SPEED
       const maxSpeed = baseSpeed * overdriveMult
@@ -573,6 +594,24 @@ export function PlayerController() {
       } else {
         coyoteTimerRef.current = Math.max(0, coyoteTimerRef.current - dt)
       }
+      if (mobileInput.jumping) {
+        jumpBufferRef.current = JUMP_BUFFER_SEC
+        mobileInput.jumping = false
+      }
+      if (mobileInput.pendingReload) {
+        mobileInput.pendingReload = false
+        multiplayerClient.reload()
+        soundEngine.playReload()
+      }
+      if (mobileInput.pendingSkill) {
+        const slot = mobileInput.pendingSkill
+        mobileInput.pendingSkill = null
+        castSkill(slot)
+      }
+      if (mobileInput.firing) {
+        attemptShoot()
+      }
+
       if (jumpBufferRef.current > 0) {
         jumpBufferRef.current = Math.max(0, jumpBufferRef.current - dt)
       }

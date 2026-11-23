@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { AGENT_IDS, AGENTS } from '../../shared/agents.ts'
+import { MobileControlsOverlay } from './MobileControlsOverlay.tsx'
 import type { SkillSlot } from '../../shared/types.ts'
 import { WEAPON_IDS, WEAPONS } from '../../shared/weapons.ts'
 import { soundEngine } from '../game/sound.ts'
@@ -937,6 +938,8 @@ export function GameHUD() {
           )}
         </div>
       </div>
+
+      <MobileControlsOverlay />
     </div>
   )
 }

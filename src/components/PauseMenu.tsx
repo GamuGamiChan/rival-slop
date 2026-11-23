@@ -10,6 +10,8 @@ export function PauseMenu() {
   const setPauseOpen = useGameStore((s) => s.setPauseOpen)
   const practiceMode = useGameStore((s) => s.practiceMode)
   const resetTutorial = useGameStore((s) => s.resetTutorial)
+  const mobileControlsEnabled = useGameStore((s) => s.mobileControlsEnabled)
+  const setMobileControlsEnabled = useGameStore((s) => s.setMobileControlsEnabled)
   const me = useGameStore(selectMyPlayer)
 
   if (!open) return null
@@ -88,6 +90,16 @@ export function PauseMenu() {
         </div>
 
         <div className="space-y-2.5 pt-1">
+          <button
+            id="btn-pause-toggle-mobile"
+            type="button"
+            onClick={() => setMobileControlsEnabled(!mobileControlsEnabled)}
+            className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 border border-cyan-500/50 text-cyan-200 font-thai font-bold text-xs hud-cut-sm flex items-center justify-center gap-2 cursor-pointer"
+          >
+            โหมดปุ่มมือถือ (Touch Controls):{' '}
+            {mobileControlsEnabled ? 'เปิดอยู่ (ON)' : 'ปิดอยู่ (OFF)'}
+          </button>
+
           <button
             id="btn-pause-resume"
             type="button"

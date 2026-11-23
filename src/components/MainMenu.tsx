@@ -1,5 +1,6 @@
 import {
   BookOpen,
+  Bot,
   Box,
   Crosshair,
   GraduationCap,
@@ -7,6 +8,7 @@ import {
   Play,
   RotateCcw,
   Shield,
+  Smartphone,
   Sparkles,
   Trophy,
   Users,
@@ -24,6 +26,7 @@ import {
   saveSelectedQuestionSetId,
 } from '../game/questionSetStore.ts'
 import { multiplayerClient } from '../multiplayer/client.ts'
+import type { AiDifficulty } from '../multiplayer/vsAiAdapter.ts'
 import { loadSession, useGameStore } from '../store/useGameStore.ts'
 import { FullscreenButton } from './FullscreenButton.tsx'
 
@@ -42,6 +45,8 @@ export function MainMenu() {
   const transportMode = useGameStore((s) => s.transportMode)
   const [savedSession] = useState(() => loadSession())
   const [reconnecting, setReconnecting] = useState(false)
+  const [aiDifficulty, setAiDifficulty] = useState<AiDifficulty>('medium')
+  const [aiTeamSize, setAiTeamSize] = useState<1 | 2>(1)
 
   const selectedSetId = questionSetsVersion >= 0 ? loadSelectedQuestionSetId() : loadSelectedQuestionSetId()
   const allQuestionSets = getAllQuestionSets()
@@ -51,6 +56,12 @@ export function MainMenu() {
     const name = playerName.trim() || `Rival_${Math.floor(100 + Math.random() * 900)}`
     setPlayerName(name)
     await multiplayerClient.createRoom(name, activeQuestionSet)
+  }
+
+  const handleStartVsAi = () => {
+    const name = playerName.trim() || `Rival_${Math.floor(100 + Math.random() * 900)}`
+    setPlayerName(name)
+    multiplayerClient.startVsAiMode(name, aiDifficulty, activeQuestionSet, aiTeamSize)
   }
 
   const handleStartPractice = () => {
@@ -102,6 +113,23 @@ export function MainMenu() {
                 : 'Authoritative WS'}
           </span>
           <FullscreenButton id="btn-menu-fullscreen" />
+          <button
+            id="btn-toggle-mobile-controls"
+            type="button"
+            onClick={() =>
+              useGameStore
+                .getState()
+                .setMobileControlsEnabled(!useGameStore.getState().mobileControlsEnabled)
+            }
+            className={`px-3 py-2 border hud-cut-sm flex items-center gap-1.5 text-xs font-display tracking-wider uppercase transition cursor-pointer ${
+              useGameStore((s) => s.mobileControlsEnabled)
+                ? 'bg-emerald-500/20 border-emerald-400 text-emerald-200'
+                : 'bg-slate-900/85 hover:bg-slate-800 border-slate-700 text-slate-300'
+            }`}
+          >
+            <Smartphone className="w-4 h-4" />
+            {useGameStore((s) => s.mobileControlsEnabled) ? 'MOBILE: ON' : 'MOBILE: OFF'}
+          </button>
           <button
             id="btn-menu-credits"
             type="button"
@@ -250,6 +278,42 @@ export function MainMenu() {
                 <GraduationCap className="w-4 h-4 text-cyan-300 shrink-0" />
                 <span>ซ้อมรอบคณิต + TUTORIAL</span>
               </button>
+            </div>
+
+            {/* VS AI Match (Full 10-Round Match vs AI Bots) */}
+            <div className="p-2.5 bg-violet-950/35 border border-violet-500/45 flex flex-wrap items-center justify-between gap-2">
+              <button
+                id="btn-menu-vs-ai"
+                type="button"
+                onClick={handleStartVsAi}
+                className="flex-1 min-w-[170px] flex items-center justify-center gap-2 py-2.5 px-3 bg-violet-500 hover:bg-violet-400 text-slate-950 font-display font-black tracking-wider text-xs uppercase hud-cut-sm transition cursor-pointer shadow-[0_0_20px_rgba(139,92,246,0.35)]"
+              >
+                <Bot className="w-4 h-4 shrink-0" />
+                <span>เล่นกับ AI (10 ตา)</span>
+              </button>
+              <div className="flex items-center gap-1.5">
+                <select
+                  id="select-ai-difficulty"
+                  value={aiDifficulty}
+                  onChange={(e) => setAiDifficulty(e.target.value as AiDifficulty)}
+                  className="px-2 py-2 bg-slate-950 border border-violet-500/40 text-violet-200 font-thai text-xs focus:outline-none"
+                  aria-label="AI Difficulty"
+                >
+                  <option value="easy">AI: ง่าย</option>
+                  <option value="medium">AI: ปานกลาง</option>
+                  <option value="hard">AI: ยาก</option>
+                </select>
+                <select
+                  id="select-ai-team-size"
+                  value={aiTeamSize}
+                  onChange={(e) => setAiTeamSize(Number(e.target.value) === 2 ? 2 : 1)}
+                  className="px-2 py-2 bg-slate-950 border border-violet-500/40 text-violet-200 font-display text-xs focus:outline-none"
+                  aria-label="AI Match Format"
+                >
+                  <option value={1}>1v1</option>
+                  <option value={2}>2v2</option>
+                </select>
+              </div>
             </div>
 
             {savedSession && (

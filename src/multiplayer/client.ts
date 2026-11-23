@@ -14,6 +14,7 @@ import { loadSession, useGameStore } from '../store/useGameStore.ts'
 import { P2PAdapter } from './p2pAdapter.ts'
 import { PracticeAdapter } from './practiceAdapter.ts'
 import { SupabaseAdapter } from './supabaseAdapter.ts'
+import { VsAiAdapter, type AiDifficulty } from './vsAiAdapter.ts'
 import { WebSocketAdapter } from './wsAdapter.ts'
 
 function resolveInitialTransportMode(): 'ws' | 'p2p' | 'supabase' {
@@ -37,11 +38,12 @@ function resolveInitialTransportMode(): 'ws' | 'p2p' | 'supabase' {
 }
 
 class MultiplayerClient {
-  private mode: 'ws' | 'p2p' | 'supabase' | 'practice'
+  private mode: 'ws' | 'p2p' | 'supabase' | 'practice' | 'ai'
   private readonly ws = new WebSocketAdapter()
   private readonly p2p = new P2PAdapter()
   private readonly sb = new SupabaseAdapter()
   private readonly practice = new PracticeAdapter()
+  private readonly ai = new VsAiAdapter()
   private lastMoveSentAt = 0
 
   constructor() {
@@ -51,9 +53,10 @@ class MultiplayerClient {
     this.p2p.setMessageHandler((msg) => this.handleServerMessage(msg))
     this.sb.setMessageHandler((msg) => this.handleServerMessage(msg))
     this.practice.setMessageHandler((msg) => this.handleServerMessage(msg))
+    this.ai.setMessageHandler((msg) => this.handleServerMessage(msg))
   }
 
-  getMode(): 'ws' | 'p2p' | 'supabase' | 'practice' {
+  getMode(): 'ws' | 'p2p' | 'supabase' | 'practice' | 'ai' {
     return this.mode
   }
 
@@ -74,10 +77,30 @@ class MultiplayerClient {
       this.ws.sendRaw({ type: 'SET_QUESTION_SET', questionSet: wire })
     } else if (this.mode === 'practice') {
       this.practice.sendMessage({ type: 'SET_QUESTION_SET', questionSet: wire })
+    } else if (this.mode === 'ai') {
+      this.ai.sendMessage({ type: 'SET_QUESTION_SET', questionSet: wire })
     }
   }
 
+  startVsAiMode(
+    playerName: string,
+    difficulty: AiDifficulty = 'medium',
+    questionSet: QuestionSet = getSelectedQuestionSet(),
+    teamSize: 1 | 2 = 1,
+  ): void {
+    this.ws.disconnect()
+    this.p2p.disconnect()
+    this.sb.disconnect()
+    this.practice.disconnect()
+    this.mode = 'ai'
+    const clean = playerName.trim() || 'Rival'
+    useGameStore.getState().setPlayerName(clean)
+    useGameStore.getState().setError(null)
+    this.ai.start(clean, difficulty, this.toWireQuestionSet(questionSet), teamSize)
+  }
+
   startPracticeMode(playerName: string, freePlay = false): void {
+    this.ai.disconnect()
     this.ws.disconnect()
     this.p2p.disconnect()
     this.sb.disconnect()
@@ -157,8 +180,9 @@ class MultiplayerClient {
 
   async createRoom(playerName: string, questionSet: QuestionSet = getSelectedQuestionSet()): Promise<void> {
     const wireSet = this.toWireQuestionSet(questionSet)
-    if (this.mode === 'practice') {
+    if (this.mode === 'practice' || this.mode === 'ai') {
       this.practice.disconnect()
+      this.ai.disconnect()
       this.mode = resolveInitialTransportMode()
       useGameStore.getState().setPracticeMode(false)
       useGameStore.getState().setTransportMode(this.mode)
@@ -190,8 +214,9 @@ class MultiplayerClient {
   }
 
   async joinRoom(roomCode: string, playerName: string): Promise<void> {
-    if (this.mode === 'practice') {
+    if (this.mode === 'practice' || this.mode === 'ai') {
       this.practice.disconnect()
+      this.ai.disconnect()
       this.mode = resolveInitialTransportMode()
       useGameStore.getState().setPracticeMode(false)
       useGameStore.getState().setTransportMode(this.mode)
@@ -229,8 +254,9 @@ class MultiplayerClient {
   async tryReconnectSavedSession(): Promise<boolean> {
     const saved = loadSession()
     if (!saved) return false
-    if (this.mode === 'practice') {
+    if (this.mode === 'practice' || this.mode === 'ai') {
       this.practice.disconnect()
+      this.ai.disconnect()
       this.mode = resolveInitialTransportMode()
       useGameStore.getState().setPracticeMode(false)
       useGameStore.getState().setTransportMode(this.mode)
@@ -289,6 +315,8 @@ class MultiplayerClient {
   selectAgent(agent: AgentId): void {
     if (this.mode === 'practice') {
       this.practice.sendMessage({ type: 'SELECT_AGENT', agent })
+    } else if (this.mode === 'ai') {
+      this.ai.sendMessage({ type: 'SELECT_AGENT', agent })
     } else if (this.mode === 'p2p') {
       this.p2p.sendMessage({ type: 'SELECT_AGENT', agent })
     } else if (this.mode === 'ws') {
@@ -297,7 +325,9 @@ class MultiplayerClient {
   }
 
   startMatch(): void {
-    if (this.mode === 'supabase') {
+    if (this.mode === 'ai') {
+      this.ai.sendMessage({ type: 'START_MATCH' })
+    } else if (this.mode === 'supabase') {
       void this.sb.startMatch()
     } else if (this.mode === 'p2p') {
       this.p2p.sendMessage({ type: 'START_MATCH' })
@@ -309,6 +339,8 @@ class MultiplayerClient {
   startFreePlay(): void {
     if (this.mode === 'practice') {
       this.practice.sendMessage({ type: 'START_FREE_PLAY' })
+    } else if (this.mode === 'ai') {
+      this.ai.sendMessage({ type: 'START_FREE_PLAY' })
     } else if (this.mode === 'p2p') {
       this.p2p.sendMessage({ type: 'START_FREE_PLAY' })
     } else if (this.mode === 'ws') {
@@ -319,6 +351,8 @@ class MultiplayerClient {
   selectFreeWeapon(weapon: import('../../shared/types.ts').WeaponId | null): void {
     if (this.mode === 'practice') {
       this.practice.sendMessage({ type: 'SELECT_FREE_WEAPON', weapon })
+    } else if (this.mode === 'ai') {
+      this.ai.sendMessage({ type: 'SELECT_FREE_WEAPON', weapon })
     } else if (this.mode === 'p2p') {
       this.p2p.sendMessage({ type: 'SELECT_FREE_WEAPON', weapon })
     } else if (this.mode === 'ws') {
@@ -327,7 +361,9 @@ class MultiplayerClient {
   }
 
   returnToLobby(): void {
-    if (this.mode === 'p2p') {
+    if (this.mode === 'ai') {
+      this.ai.sendMessage({ type: 'RETURN_TO_LOBBY' })
+    } else if (this.mode === 'p2p') {
       this.p2p.sendMessage({ type: 'RETURN_TO_LOBBY' })
     } else if (this.mode === 'ws') {
       this.ws.sendRaw({ type: 'RETURN_TO_LOBBY' })
@@ -335,8 +371,9 @@ class MultiplayerClient {
   }
 
   leaveRoom(): void {
-    if (this.mode === 'practice') {
+    if (this.mode === 'practice' || this.mode === 'ai') {
       this.practice.disconnect()
+      this.ai.disconnect()
       this.mode = resolveInitialTransportMode()
       useGameStore.getState().setTransportMode(this.mode)
     } else if (this.mode === 'p2p') {
@@ -357,6 +394,8 @@ class MultiplayerClient {
     this.lastMoveSentAt = now
     if (this.mode === 'practice') {
       this.practice.sendMessage({ type: 'PLAYER_MOVE', position, yaw, pitch })
+    } else if (this.mode === 'ai') {
+      this.ai.sendMessage({ type: 'PLAYER_MOVE', position, yaw, pitch })
     } else if (this.mode === 'supabase') {
       this.sb.sendMove(position, yaw, pitch)
     } else if (this.mode === 'p2p') {
@@ -369,6 +408,8 @@ class MultiplayerClient {
   requestQuestion(preferredDifficulty?: Difficulty): void {
     if (this.mode === 'practice') {
       this.practice.sendMessage({ type: 'REQUEST_QUESTION', preferredDifficulty })
+    } else if (this.mode === 'ai') {
+      this.ai.sendMessage({ type: 'REQUEST_QUESTION', preferredDifficulty })
     } else if (this.mode === 'supabase') {
       this.sb.requestQuestion(preferredDifficulty)
     } else if (this.mode === 'p2p') {
@@ -381,6 +422,8 @@ class MultiplayerClient {
   submitAnswer(questionId: string, selectedIndex: number): void {
     if (this.mode === 'practice') {
       this.practice.sendMessage({ type: 'SUBMIT_ANSWER', questionId, selectedIndex })
+    } else if (this.mode === 'ai') {
+      this.ai.sendMessage({ type: 'SUBMIT_ANSWER', questionId, selectedIndex })
     } else if (this.mode === 'supabase') {
       void this.sb.submitAnswer(questionId, selectedIndex)
     } else if (this.mode === 'p2p') {
@@ -393,6 +436,8 @@ class MultiplayerClient {
   useMathHelper(questionId: string, helper: MathHelperType): void {
     if (this.mode === 'practice') {
       this.practice.sendMessage({ type: 'USE_MATH_HELPER', questionId, helper })
+    } else if (this.mode === 'ai') {
+      this.ai.sendMessage({ type: 'USE_MATH_HELPER', questionId, helper })
     } else if (this.mode === 'p2p') {
       this.p2p.sendMessage({ type: 'USE_MATH_HELPER', questionId, helper })
     } else if (this.mode === 'ws') {
@@ -403,6 +448,8 @@ class MultiplayerClient {
   shoot(origin: Vec3, direction: Vec3): void {
     if (this.mode === 'practice') {
       this.practice.sendMessage({ type: 'SHOOT', origin, direction })
+    } else if (this.mode === 'ai') {
+      this.ai.sendMessage({ type: 'SHOOT', origin, direction })
     } else if (this.mode === 'supabase') {
       void this.sb.shoot(origin, direction)
     } else if (this.mode === 'p2p') {
@@ -415,6 +462,8 @@ class MultiplayerClient {
   useSkill(slot: SkillSlot, origin: Vec3, direction: Vec3): void {
     if (this.mode === 'practice') {
       this.practice.sendMessage({ type: 'USE_SKILL', slot, origin, direction })
+    } else if (this.mode === 'ai') {
+      this.ai.sendMessage({ type: 'USE_SKILL', slot, origin, direction })
     } else if (this.mode === 'p2p') {
       this.p2p.sendMessage({ type: 'USE_SKILL', slot, origin, direction })
     } else if (this.mode === 'ws') {
@@ -425,6 +474,8 @@ class MultiplayerClient {
   reload(): void {
     if (this.mode === 'practice') {
       this.practice.sendMessage({ type: 'RELOAD' })
+    } else if (this.mode === 'ai') {
+      this.ai.sendMessage({ type: 'RELOAD' })
     } else if (this.mode === 'p2p') {
       this.p2p.sendMessage({ type: 'RELOAD' })
     } else if (this.mode === 'ws') {
