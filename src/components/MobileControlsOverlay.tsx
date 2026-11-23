@@ -1,4 +1,14 @@
-import { Crosshair, Pause, RotateCw, Shield, Sparkles, Target, Zap } from 'lucide-react'
+import {
+  BarChart3,
+  Crosshair,
+  Pause,
+  RotateCw,
+  Shield,
+  Sparkles,
+  Target,
+  Wind,
+  Zap,
+} from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { AGENTS } from '../../shared/agents.ts'
 import type { SkillSlot } from '../../shared/types.ts'
@@ -12,7 +22,11 @@ export function MobileControlsOverlay() {
   const mathModalOpen = useGameStore((s) => s.mathModalOpen)
   const pauseOpen = useGameStore((s) => s.pauseOpen)
   const setPauseOpen = useGameStore((s) => s.setPauseOpen)
+  const scoreboardOpen = useGameStore((s) => s.scoreboardOpen)
+  const setScoreboardOpen = useGameStore((s) => s.setScoreboardOpen)
   const isAdsZoom = useGameStore((s) => s.isAdsZoom)
+  const isSprinting = useGameStore((s) => s.isSprinting)
+  const isSliding = useGameStore((s) => s.isSliding)
 
   const [thumbOffset, setThumbOffset] = useState({ x: 0, y: 0 })
   const joyPointerIdRef = useRef<number | null>(null)
@@ -100,8 +114,8 @@ export function MobileControlsOverlay() {
     const dx = e.clientX - lookLastRef.current.x
     const dy = e.clientY - lookLastRef.current.y
     lookLastRef.current = { x: e.clientX, y: e.clientY }
-    mobileInput.lookDeltaYaw -= dx * 1.9
-    mobileInput.lookDeltaPitch += dy * 1.9
+    mobileInput.lookDeltaYaw -= dx * 2.0
+    mobileInput.lookDeltaPitch += dy * 2.0
   }
 
   const handleLookUp = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -127,24 +141,44 @@ export function MobileControlsOverlay() {
         onPointerMove={handleLookMove}
         onPointerUp={handleLookUp}
         onPointerCancel={handleLookUp}
-        className="pointer-events-auto absolute top-16 right-0 bottom-0 left-[40%] touch-none"
+        className="pointer-events-auto absolute top-16 right-0 bottom-0 left-[38%] touch-none"
       />
 
-      {/* Mobile Top-Left Pause button */}
-      <button
-        id="btn-mobile-pause"
-        type="button"
-        onPointerDown={(e) => {
-          e.stopPropagation()
-          setPauseOpen(true)
-        }}
-        className="pointer-events-auto absolute top-16 left-3 h-10 w-10 rounded-full bg-slate-950/80 border border-slate-700 text-slate-200 flex items-center justify-center active:scale-95"
-        aria-label="Pause Menu"
-      >
-        <Pause className="w-4 h-4" />
-      </button>
+      {/* Mobile Top-Left Quick Action Buttons: Pause + Scoreboard */}
+      <div className="pointer-events-auto absolute top-16 left-3 flex items-center gap-2">
+        <button
+          id="btn-mobile-pause"
+          type="button"
+          onPointerDown={(e) => {
+            e.stopPropagation()
+            setPauseOpen(true)
+          }}
+          className="h-10 w-10 rounded-full bg-slate-950/85 border border-slate-600 text-slate-100 flex items-center justify-center active:scale-90"
+          aria-label="Pause Menu"
+        >
+          <Pause className="w-4 h-4" />
+        </button>
 
-      {/* Left Virtual Joystick */}
+        <button
+          id="btn-mobile-scoreboard"
+          type="button"
+          onPointerDown={(e) => {
+            e.stopPropagation()
+            setScoreboardOpen(!scoreboardOpen)
+          }}
+          className={`h-10 px-3 rounded-full border font-display text-[10px] font-bold tracking-wider uppercase flex items-center gap-1.5 active:scale-90 ${
+            scoreboardOpen
+              ? 'bg-cyan-500 border-white text-slate-950'
+              : 'bg-slate-950/85 border-slate-600 text-slate-200'
+          }`}
+          aria-label="Scoreboard"
+        >
+          <BarChart3 className="w-3.5 h-3.5" />
+          <span>SCORE</span>
+        </button>
+      </div>
+
+      {/* Left Virtual Joystick + Sprint Lock Ring */}
       <div
         id="mobile-joystick-zone"
         ref={joyBaseRef}
@@ -152,12 +186,23 @@ export function MobileControlsOverlay() {
         onPointerMove={handleJoyMove}
         onPointerUp={handleJoyUp}
         onPointerCancel={handleJoyUp}
-        className="pointer-events-auto absolute left-5 bottom-24 h-32 w-32 rounded-full bg-slate-950/55 border-2 border-cyan-400/55 backdrop-blur-sm flex items-center justify-center touch-none shadow-[0_0_24px_rgba(0,229,255,0.18)]"
+        className={`pointer-events-auto absolute left-4 bottom-16 h-32 w-32 rounded-full bg-slate-950/55 border-2 backdrop-blur-sm flex items-center justify-center touch-none transition-colors ${
+          isSprinting
+            ? 'border-emerald-400 shadow-[0_0_24px_rgba(16,185,129,0.4)]'
+            : 'border-cyan-400/55 shadow-[0_0_24px_rgba(0,229,255,0.18)]'
+        }`}
       >
         <div className="h-14 w-14 rounded-full border border-cyan-400/30 pointer-events-none" />
+        <span className="absolute -top-5 font-display text-[9px] tracking-widest text-slate-300 uppercase pointer-events-none">
+          {isSprinting ? 'SPRINT' : 'MOVE'}
+        </span>
         <div
           id="mobile-joystick-thumb"
-          className="absolute h-14 w-14 rounded-full bg-cyan-400/80 border-2 border-white shadow-[0_0_16px_rgba(0,229,255,0.65)] pointer-events-none"
+          className={`absolute h-14 w-14 rounded-full border-2 border-white pointer-events-none ${
+            isSprinting
+              ? 'bg-emerald-400/85 shadow-[0_0_16px_rgba(16,185,129,0.75)]'
+              : 'bg-cyan-400/80 shadow-[0_0_16px_rgba(0,229,255,0.65)]'
+          }`}
           style={{
             transform: `translate(${thumbOffset.x}px, ${thumbOffset.y}px)`,
           }}
@@ -165,7 +210,7 @@ export function MobileControlsOverlay() {
       </div>
 
       {/* Right Action Buttons */}
-      <div className="pointer-events-auto absolute right-4 bottom-24 flex flex-col items-end gap-2.5 touch-none">
+      <div className="pointer-events-auto absolute right-3 bottom-16 flex flex-col items-end gap-2 touch-none">
         {/* Skill Row: Q / C / X */}
         <div className="flex items-center gap-2">
           <button
@@ -175,7 +220,7 @@ export function MobileControlsOverlay() {
               e.stopPropagation()
               triggerSkill('Q')
             }}
-            className="h-11 w-11 rounded-full bg-slate-950/85 border border-cyan-400/60 text-cyan-200 font-display text-xs font-black flex flex-col items-center justify-center active:scale-90"
+            className="h-11 w-11 rounded-full bg-slate-950/85 border border-cyan-400/65 text-cyan-200 font-display text-xs font-black flex flex-col items-center justify-center active:scale-90"
           >
             <Shield className="w-3.5 h-3.5" />
             <span className="text-[9px]">Q</span>
@@ -187,7 +232,7 @@ export function MobileControlsOverlay() {
               e.stopPropagation()
               triggerSkill('C')
             }}
-            className="h-11 w-11 rounded-full bg-slate-950/85 border border-amber-400/60 text-amber-200 font-display text-xs font-black flex flex-col items-center justify-center active:scale-90"
+            className="h-11 w-11 rounded-full bg-slate-950/85 border border-amber-400/65 text-amber-200 font-display text-xs font-black flex flex-col items-center justify-center active:scale-90"
           >
             <Zap className="w-3.5 h-3.5" />
             <span className="text-[9px]">C</span>
@@ -211,8 +256,8 @@ export function MobileControlsOverlay() {
           </button>
         </div>
 
-        {/* Combat Row: Reload / Aim / Jump + Big Fire */}
-        <div className="flex items-end gap-2.5">
+        {/* Combat & Movement Row: Reload / Aim / Slide / Jump + Big Fire */}
+        <div className="flex items-end gap-2">
           <button
             id="btn-mobile-reload"
             type="button"
@@ -220,10 +265,10 @@ export function MobileControlsOverlay() {
               e.stopPropagation()
               mobileInput.pendingReload = true
             }}
-            className="h-12 w-12 rounded-full bg-slate-950/80 border border-slate-600 text-slate-200 flex items-center justify-center active:scale-90"
+            className="h-11 w-11 rounded-full bg-slate-950/85 border border-slate-600 text-slate-200 flex items-center justify-center active:scale-90"
             aria-label="Reload"
           >
-            <RotateCw className="w-5 h-5" />
+            <RotateCw className="w-4 h-4" />
           </button>
 
           <button
@@ -233,14 +278,32 @@ export function MobileControlsOverlay() {
               e.stopPropagation()
               mobileInput.aiming = !mobileInput.aiming
             }}
-            className={`h-12 w-12 rounded-full border flex items-center justify-center active:scale-90 ${
+            className={`h-11 w-11 rounded-full border flex items-center justify-center active:scale-90 ${
               isAdsZoom
                 ? 'bg-cyan-500 border-white text-slate-950'
-                : 'bg-slate-950/80 border-cyan-400/60 text-cyan-200'
+                : 'bg-slate-950/85 border-cyan-400/60 text-cyan-200'
             }`}
             aria-label="Toggle Aim"
           >
-            <Target className="w-5 h-5" />
+            <Target className="w-4 h-4" />
+          </button>
+
+          <button
+            id="btn-mobile-slide"
+            type="button"
+            onPointerDown={(e) => {
+              e.stopPropagation()
+              mobileInput.pendingSlide = true
+            }}
+            className={`h-12 w-12 rounded-full border font-display text-[9px] font-black flex flex-col items-center justify-center active:scale-90 ${
+              isSliding
+                ? 'bg-amber-400 border-white text-slate-950 shadow-[0_0_18px_rgba(251,191,36,0.75)]'
+                : 'bg-slate-950/85 border-amber-400/65 text-amber-200'
+            }`}
+            aria-label="Slide"
+          >
+            <Wind className="w-4 h-4" />
+            <span>SLIDE</span>
           </button>
 
           <button
@@ -250,7 +313,7 @@ export function MobileControlsOverlay() {
               e.stopPropagation()
               mobileInput.jumping = true
             }}
-            className="h-12 w-12 rounded-full bg-slate-950/80 border border-emerald-400/60 text-emerald-200 font-display text-[10px] font-black flex items-center justify-center active:scale-90"
+            className="h-12 w-12 rounded-full bg-slate-950/85 border border-emerald-400/65 text-emerald-200 font-display text-[10px] font-black flex items-center justify-center active:scale-90"
           >
             JUMP
           </button>

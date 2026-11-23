@@ -265,6 +265,7 @@ export interface GameState {
   lastShotVisualAt: number
   isAdsZoom: boolean
   isSprinting: boolean
+  isSliding: boolean
   rrHintUntil: number
 
   // Explicit Math Flow Machine & History
@@ -336,6 +337,7 @@ export interface GameState {
   resetSettingsToDefault: () => void
   setAdsZoom: (zoom: boolean) => void
   setSprinting: (sprinting: boolean) => void
+  setSliding: (sliding: boolean) => void
   triggerRrHint: () => void
   triggerLocalShotVisual: () => void
   addLocalTracer: (
@@ -438,6 +440,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   lastShotVisualAt: 0,
   isAdsZoom: false,
   isSprinting: false,
+  isSliding: false,
   rrHintUntil: 0,
 
   mathFlowPhase: 'COMBAT_READY',
@@ -588,6 +591,9 @@ export const useGameStore = create<GameState>((set, get) => ({
   setAdsZoom: (isAdsZoom) => {
     if (get().isAdsZoom === isAdsZoom) return
     set({ isAdsZoom })
+  },
+  setSliding: (isSliding) => {
+    if (get().isSliding !== isSliding) set({ isSliding })
   },
   setSprinting: (isSprinting) => {
     if (get().isSprinting === isSprinting) return
@@ -1100,6 +1106,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       pointerLocked: false,
       isAdsZoom: false,
       isSprinting: false,
+  isSliding: false,
     })
   },
 
@@ -1148,6 +1155,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       tutorialOpen: false,
       isAdsZoom: false,
       isSprinting: false,
+  isSliding: false,
       errorMessage: null,
     })
   },

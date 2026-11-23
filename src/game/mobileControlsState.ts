@@ -10,6 +10,7 @@ export interface MobileInputState {
   jumping: boolean
   sprinting: boolean
   pendingReload: boolean
+  pendingSlide: boolean
   pendingSkill: SkillSlot | null
 }
 
@@ -27,6 +28,7 @@ export const mobileInput: MobileInputState = {
   jumping: false,
   sprinting: false,
   pendingReload: false,
+  pendingSlide: false,
   pendingSkill: null,
 }
 
@@ -40,5 +42,6 @@ export function resetMobileInput(): void {
   mobileInput.jumping = false
   mobileInput.sprinting = false
   mobileInput.pendingReload = false
+  mobileInput.pendingSlide = false
   mobileInput.pendingSkill = null
 }

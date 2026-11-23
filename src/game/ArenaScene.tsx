@@ -500,13 +500,13 @@ function CenterMathCoreReactor() {
 
 /** Distinct Blue Command Bay & Red Vanguard Bay Spawn Portals, Pedestals & Lane Navigation Chevrons. */
 function TeamBaseLandmarks() {
-  const chevronsZ = [-14, -10.5, 10.5, 14]
+  const chevronsZ = [-26, -18, 18, 26]
   return (
     <group>
       {/* Blue Command Gate Arch (North) & Red Vanguard Gate Arch (South) */}
       {[
-        { z: -24.5, color: '#38bdf8', team: 'blue' as const },
-        { z: 24.5, color: '#fb7185', team: 'red' as const },
+        { z: -43.5, color: '#38bdf8', team: 'blue' as const },
+        { z: 43.5, color: '#fb7185', team: 'red' as const },
       ].map(({ z, color, team }) => (
         <group key={team} position={[0, 0, z]}>
           {/* Left & Right Frame Columns */}
@@ -614,12 +614,12 @@ function JumpPadsVisual() {
 
 /** Stadium Overhead Structural Steel Trusses & Skylight Ceiling Panels. */
 function StadiumRoofTrusses() {
-  const archPositions = [-21, -10, 0, 10, 21]
+  const archPositions = [-40, -20, 0, 20, 40]
   return (
     <group>
       {/* Side longitudinal beams connecting roof trusses */}
-      {[-14, 14].map((xPos) => (
-        <mesh key={`long-${xPos}`} position={[xPos, 12.1, 0]}>
+      {[-24, 24].map((xPos) => (
+        <mesh key={`long-${xPos}`} position={[xPos, 14.1, 0]}>
           <boxGeometry args={[0.7, 0.55, ARENA_BOUNDS.halfLength * 2]} />
           <meshStandardMaterial color="#2d4264" metalness={0.28} roughness={0.44} />
         </mesh>
@@ -627,7 +627,7 @@ function StadiumRoofTrusses() {
       {archPositions.map((zPos) => {
         const color = zPos === 0 ? '#22d3ee' : zPos < 0 ? '#38bdf8' : '#fb7185'
         return (
-          <group key={zPos} position={[0, 11.8, zPos]}>
+          <group key={zPos} position={[0, 13.8, zPos]}>
             <mesh>
               <boxGeometry args={[ARENA_BOUNDS.halfWidth * 2, 0.72, 0.95]} />
               <meshStandardMaterial color="#324a70" metalness={0.28} roughness={0.42} />
@@ -679,7 +679,7 @@ function ArenaWorld() {
     <>
       {/* Balanced deep-navy futuristic arena atmosphere (bright enough for instant target clarity) */}
       <color attach="background" args={['#0c1629']} />
-      <fog attach="fog" args={['#0c1629', 36, 102]} />
+      <fog attach="fog" args={['#0c1629', 58, 165]} />
 
       {/* Balanced 3-Point Esports Arena Lighting */}
       <ambientLight intensity={0.82} color="#cbd5e1" />
@@ -692,9 +692,9 @@ function ArenaWorld() {
       <directionalLight position={[-16, 20, -16]} intensity={0.95} color="#dbeafe" />
 
       {/* Controlled Blue vs Red Sector Key Lights */}
-      <pointLight position={[0, 8.5, -24]} intensity={26} distance={42} color="#38bdf8" />
-      <pointLight position={[0, 8.5, 24]} intensity={26} distance={42} color="#fb7185" />
-      <pointLight position={[0, 9.5, 0]} intensity={22} distance={34} color="#bae6fd" />
+      <pointLight position={[0, 10.5, -42]} intensity={32} distance={70} color="#38bdf8" />
+      <pointLight position={[0, 10.5, 42]} intensity={32} distance={70} color="#fb7185" />
+      <pointLight position={[0, 11.5, 0]} intensity={26} distance={54} color="#bae6fd" />
 
       {/* Brushed Metallic Arena Floor */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
@@ -709,12 +709,12 @@ function ArenaWorld() {
       </mesh>
 
       {/* Subtle Team Base Zone Floor Tints */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.018, -27]}>
-        <planeGeometry args={[28, 7.5]} />
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.018, -47]}>
+        <planeGeometry args={[46, 10]} />
         <meshBasicMaterial color="#38bdf8" transparent opacity={0.1} />
       </mesh>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.018, 27]}>
-        <planeGeometry args={[28, 7.5]} />
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.018, 47]}>
+        <planeGeometry args={[46, 10]} />
         <meshBasicMaterial color="#fb7185" transparent opacity={0.1} />
       </mesh>
 

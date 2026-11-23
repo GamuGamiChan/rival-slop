@@ -55,6 +55,7 @@ const ARENA_CTRL_PREVENT_CODES = new Set([
   'KeyQ',
   'KeyC',
   'KeyX',
+  'KeyV',
   'Space',
   'Tab',
 ])
@@ -80,6 +81,7 @@ class CentralizedInputManager {
   private mouseRightDown = false
   private dragAimActive = false
   private pointerLocked = false
+  private slideQueued = false
   private tabMouseLookActive = false
   private lastMouseClientX: number | null = null
   private lastMouseClientY: number | null = null
@@ -215,6 +217,12 @@ class CentralizedInputManager {
     // Ctrl (Left or Right) is the primary Aim Mode key; RMB is optional secondary mouse aim.
     // Shift NEVER activates Aim.
     return this.isCtrlHeld() || this.mouseRightDown
+  }
+
+  consumeSlide(): boolean {
+    if (!this.slideQueued) return false
+    this.slideQueued = false
+    return true
   }
 
   isSprinting(): boolean {
@@ -513,6 +521,10 @@ class CentralizedInputManager {
 
     // Movement & Action keys
     this.heldCodes.add(e.code)
+
+    if (e.code === 'KeyV' && !e.repeat && cb.isCombatPlayable()) {
+      this.slideQueued = true
+    }
 
     if (e.code === 'Space' && !e.repeat && cb.isCombatPlayable()) {
       e.preventDefault()

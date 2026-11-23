@@ -27,6 +27,11 @@ const GRAVITY = 22.0
 const COYOTE_TIME_SEC = 0.12
 const JUMP_BUFFER_SEC = 0.12
 const DEFAULT_FOV = 75
+const SLIDE_DURATION_SEC = 0.56
+const SLIDE_COOLDOWN_SEC = 0.75
+const SLIDE_INITIAL_SPEED = 16.5
+const SLIDE_END_SPEED = 7.6
+const SLIDE_EYE_DROP = 0.68
 
 // Reusable scratch objects (zero per-frame / per-shot GC allocations)
 const _scratchEuler = new THREE.Euler(0, 0, 0, 'YXZ')
@@ -71,6 +76,10 @@ export function PlayerController() {
   const groundedRef = useRef(true)
   const coyoteTimerRef = useRef(0)
   const jumpBufferRef = useRef(0)
+  const slideTimerRef = useRef(0)
+  const slideCooldownRef = useRef(0)
+  const slideDirRef = useRef<{ x: number; z: number }>({ x: 0, z: -1 })
+  const slideEyeDropRef = useRef(0)
   const posRef = useRef({ x: 0, y: 0, z: -26 })
   const yawRef = useRef(Math.PI)
   const pitchRef = useRef(0)
@@ -497,7 +506,7 @@ export function PlayerController() {
       -Math.PI / 2 + 0.06,
       Math.min(Math.PI / 2 - 0.06, pitchRef.current + recoilPitchRef.current),
     )
-    cam.rotation.z = 0
+    cam.rotation.z = slideTimerRef.current > 0 ? 0.042 : 0
 
     if (!me.alive) {
       state.setSprinting(false)
@@ -582,7 +591,53 @@ export function PlayerController() {
         velZRef.current *= damp
       }
 
-      if (hasMoveInput) {
+      slideCooldownRef.current = Math.max(0, slideCooldownRef.current - dt)
+      const slideTriggered = inputManager.consumeSlide() || mobileInput.pendingSlide
+      if (mobileInput.pendingSlide) mobileInput.pendingSlide = false
+
+      if (
+        slideTriggered &&
+        groundedRef.current &&
+        slideTimerRef.current <= 0 &&
+        slideCooldownRef.current <= 0
+      ) {
+        const sinY = Math.sin(yawRef.current)
+        const cosY = Math.cos(yawRef.current)
+        let sx = -sinY
+        let sz = -cosY
+        if (hasMoveInput) {
+          const len = Math.hypot(forwardInput, strafeInput) || 1
+          const nf = forwardInput / len
+          const ns = strafeInput / len
+          sx = -sinY * nf + cosY * ns
+          sz = -cosY * nf - sinY * ns
+          const dLen = Math.hypot(sx, sz) || 1
+          sx /= dLen
+          sz /= dLen
+        }
+        slideDirRef.current = { x: sx, z: sz }
+        slideTimerRef.current = SLIDE_DURATION_SEC
+        slideCooldownRef.current = SLIDE_COOLDOWN_SEC
+        state.setSliding(true)
+        soundEngine.playJump(false)
+      }
+
+      if (slideTimerRef.current > 0) {
+        slideTimerRef.current = Math.max(0, slideTimerRef.current - dt)
+        const progress = 1 - slideTimerRef.current / SLIDE_DURATION_SEC
+        const slideSpeed =
+          (SLIDE_INITIAL_SPEED + (SLIDE_END_SPEED - SLIDE_INITIAL_SPEED) * progress) *
+          overdriveMult
+        velXRef.current = slideDirRef.current.x * slideSpeed
+        velZRef.current = slideDirRef.current.z * slideSpeed
+        if (slideTimerRef.current <= 0) {
+          state.setSliding(false)
+        }
+      } else {
+        state.setSliding(false)
+      }
+
+      if (hasMoveInput || slideTimerRef.current > 0) {
         cumulativeMoveRef.current += Math.hypot(velXRef.current, velZRef.current) * dt
         if (cumulativeMoveRef.current >= 1.5) {
           state.markTutorialStep('moved')
@@ -617,6 +672,10 @@ export function PlayerController() {
       }
 
       if (jumpBufferRef.current > 0 && coyoteTimerRef.current > 0) {
+        if (slideTimerRef.current > 0) {
+          slideTimerRef.current = 0
+          state.setSliding(false)
+        }
         velocityYRef.current = JUMP_VELOCITY
         groundedRef.current = false
         coyoteTimerRef.current = 0
@@ -667,9 +726,17 @@ export function PlayerController() {
       }
     }
 
+    const targetDrop = slideTimerRef.current > 0 ? SLIDE_EYE_DROP : 0
+    const dropStep = 10 * dt
+    if (slideEyeDropRef.current < targetDrop) {
+      slideEyeDropRef.current = Math.min(targetDrop, slideEyeDropRef.current + dropStep)
+    } else {
+      slideEyeDropRef.current = Math.max(targetDrop, slideEyeDropRef.current - dropStep)
+    }
+
     cam.position.set(
       posRef.current.x,
-      posRef.current.y + PLAYER_DIMENSIONS.eyeHeight,
+      posRef.current.y + PLAYER_DIMENSIONS.eyeHeight - slideEyeDropRef.current,
       posRef.current.z,
     )
 

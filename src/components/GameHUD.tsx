@@ -38,6 +38,8 @@ export function GameHUD() {
   const pauseOpen = useGameStore((s) => s.pauseOpen)
   const isAdsZoom = useGameStore((s) => s.isAdsZoom)
   const isSprinting = useGameStore((s) => s.isSprinting)
+  const isSliding = useGameStore((s) => s.isSliding)
+  const mobileControlsEnabled = useGameStore((s) => s.mobileControlsEnabled)
   const practiceMode = useGameStore((s) => s.practiceMode)
   const showControlsRef = useGameStore((s) => s.showControlsRef)
   const toggleControlsRef = useGameStore((s) => s.toggleControlsRef)
@@ -311,18 +313,20 @@ export function GameHUD() {
               {room.roundState === 'FREE_PLAY' ? 'FREE PRACTICE • SWITCH TO MATH DRILL' : 'SWITCH TO FREE WEAPONS'}
             </button>
           )}
-          <span
-            id="hud-pointer-lock-status"
-            data-mouse-look-active={String(pointerLocked)}
-            className={`inline-flex items-center gap-1 text-[10px] font-display tracking-wider uppercase px-2 py-0.5 border ${
-              pointerLocked
-                ? 'bg-emerald-950/80 border-emerald-400/70 text-emerald-300'
-                : 'bg-slate-950/85 border-cyan-500/45 text-cyan-300'
-            }`}
-          >
-            {pointerLocked ? <Lock className="w-2.5 h-2.5" /> : <Unlock className="w-2.5 h-2.5" />}
-            {pointerLocked ? 'MOUSE LOOK ON [TAB: EXIT]' : 'PRESS [TAB] / CLICK TO LOOK'}
-          </span>
+          {!mobileControlsEnabled && (
+            <span
+              id="hud-pointer-lock-status"
+              data-mouse-look-active={String(pointerLocked)}
+              className={`inline-flex items-center gap-1 text-[10px] font-display tracking-wider uppercase px-2 py-0.5 border ${
+                pointerLocked
+                  ? 'bg-emerald-950/80 border-emerald-400/70 text-emerald-300'
+                  : 'bg-slate-950/85 border-cyan-500/45 text-cyan-300'
+              }`}
+            >
+              {pointerLocked ? <Lock className="w-2.5 h-2.5" /> : <Unlock className="w-2.5 h-2.5" />}
+              {pointerLocked ? 'MOUSE LOOK ON [TAB: EXIT]' : 'PRESS [TAB] / CLICK TO LOOK'}
+            </span>
+          )}
         </div>
         {recentKills.slice(0, 4).map((k) => (
           <div
@@ -639,6 +643,14 @@ export function GameHUD() {
               SPRINT [SHIFT]
             </span>
           )}
+          {isSliding && (
+            <span
+              id="hud-slide-indicator"
+              className="px-2 py-0.5 bg-amber-500/30 border border-amber-400 text-amber-200 font-display text-[10px] font-black tracking-widest uppercase"
+            >
+              SLIDING [V]
+            </span>
+          )}
           {isAdsZoom && (
             <span
               id="hud-aim-indicator"
@@ -750,7 +762,7 @@ export function GameHUD() {
       )}
 
       {/* BOTTOM CENTER — VALORANT-STYLE AGENT ABILITY DOCK (Q / C / X) */}
-      {room.phase === 'playing' && (
+      {room.phase === 'playing' && !mobileControlsEnabled && (
         <div
           id="hud-ability-dock"
           className="pointer-events-auto fixed bottom-4 left-1/2 -translate-x-1/2 flex items-end gap-2"

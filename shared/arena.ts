@@ -23,9 +23,9 @@ export interface JumpPad {
 }
 
 export const ARENA_BOUNDS = {
-  halfWidth: 26, // X: -26..26 (52m wide)
-  halfLength: 32, // Z: -32..32 (64m long)
-  ceilingY: 16,
+  halfWidth: 46, // X: -46..46 (92m wide)
+  halfLength: 56, // Z: -56..56 (112m long)
+  ceilingY: 20,
 } as const
 
 export const PLAYER_DIMENSIONS = {
@@ -40,75 +40,83 @@ export const PLAYER_DIMENSIONS = {
 } as const
 
 /**
- * Symmetric Futuristic Neon Arena:
- * - Blue Base at Z = -26 (facing +Z)
- * - Red Base at Z = +26 (facing -Z)
- * - Center elevated Math Core Platform (Y = 2.2) accessible via side ramps & jump pads
- * - Tactical energy-glass cover walls, neon pillars, and flanking lanes
+ * Expanded Symmetric Futuristic Neon Arena (92m x 112m):
+ * - Blue Base at Z = -48 (facing +Z)
+ * - Red Base at Z = +48 (facing -Z)
+ * - Center elevated Math Core Platform (Y = 2.0) accessible via stepped ramps & 6 jump pads
+ * - Outer flanking decks, tactical cover bunkers, neon pillars, and wide slide lanes
  */
 export const ARENA_BOXES: ArenaBox[] = [
   // Perimeter Arena Walls
-  { id: 'wall-north', minX: -27, maxX: 27, minY: 0, maxY: 12, minZ: -33, maxZ: -32, kind: 'wall', accent: 'blue' },
-  { id: 'wall-south', minX: -27, maxX: 27, minY: 0, maxY: 12, minZ: 32, maxZ: 33, kind: 'wall', accent: 'red' },
-  { id: 'wall-west', minX: -27, maxX: -26, minY: 0, maxY: 12, minZ: -32, maxZ: 32, kind: 'wall', accent: 'neutral' },
-  { id: 'wall-east', minX: 26, maxX: 27, minY: 0, maxY: 12, minZ: -32, maxZ: 32, kind: 'wall', accent: 'neutral' },
+  { id: 'wall-north', minX: -47, maxX: 47, minY: 0, maxY: 14, minZ: -57, maxZ: -56, kind: 'wall', accent: 'blue' },
+  { id: 'wall-south', minX: -47, maxX: 47, minY: 0, maxY: 14, minZ: 56, maxZ: 57, kind: 'wall', accent: 'red' },
+  { id: 'wall-west', minX: -47, maxX: -46, minY: 0, maxY: 14, minZ: -56, maxZ: 56, kind: 'wall', accent: 'neutral' },
+  { id: 'wall-east', minX: 46, maxX: 47, minY: 0, maxY: 14, minZ: -56, maxZ: 56, kind: 'wall', accent: 'neutral' },
 
   // Central Elevated Neon Core Platform (walkable top at Y = 2.0)
-  { id: 'center-deck', minX: -6.5, maxX: 6.5, minY: 0, maxY: 2.0, minZ: -5.5, maxZ: 5.5, kind: 'platform', accent: 'neutral' },
-  // Stepped Ramps onto Central Deck (West & East sides — smooth 0 -> 0.65 -> 1.32 -> 2.0 climb)
-  { id: 'ramp-w1', minX: -8.5, maxX: -6.5, minY: 0, maxY: 1.32, minZ: -3.2, maxZ: 3.2, kind: 'platform', accent: 'neutral' },
-  { id: 'ramp-w2', minX: -10.5, maxX: -8.5, minY: 0, maxY: 0.65, minZ: -3.2, maxZ: 3.2, kind: 'platform', accent: 'neutral' },
-  { id: 'ramp-e1', minX: 6.5, maxX: 8.5, minY: 0, maxY: 1.32, minZ: -3.2, maxZ: 3.2, kind: 'platform', accent: 'neutral' },
-  { id: 'ramp-e2', minX: 8.5, maxX: 10.5, minY: 0, maxY: 0.65, minZ: -3.2, maxZ: 3.2, kind: 'platform', accent: 'neutral' },
+  { id: 'center-deck', minX: -9.0, maxX: 9.0, minY: 0, maxY: 2.0, minZ: -7.5, maxZ: 7.5, kind: 'platform', accent: 'neutral' },
+  // Stepped Ramps onto Central Deck (West & East sides — keep X=-11 maxY<=0.65 so eyeHeight=1.56 stays clear)
+  { id: 'ramp-w1', minX: -10.5, maxX: -9.0, minY: 0, maxY: 1.32, minZ: -4.0, maxZ: 4.0, kind: 'platform', accent: 'neutral' },
+  { id: 'ramp-w2', minX: -13.0, maxX: -10.5, minY: 0, maxY: 0.65, minZ: -4.0, maxZ: 4.0, kind: 'platform', accent: 'neutral' },
+  { id: 'ramp-e1', minX: 9.0, maxX: 10.5, minY: 0, maxY: 1.32, minZ: -4.0, maxZ: 4.0, kind: 'platform', accent: 'neutral' },
+  { id: 'ramp-e2', minX: 10.5, maxX: 13.0, minY: 0, maxY: 0.65, minZ: -4.0, maxZ: 4.0, kind: 'platform', accent: 'neutral' },
 
   // Center Deck Chest-High Cover Shields (Blue & Red edges)
-  { id: 'center-shield-n', minX: -3.0, maxX: 3.0, minY: 2.0, maxY: 3.3, minZ: -5.2, maxZ: -4.6, kind: 'glass', accent: 'blue' },
-  { id: 'center-shield-s', minX: -3.0, maxX: 3.0, minY: 2.0, maxY: 3.3, minZ: 4.6, maxZ: 5.2, kind: 'glass', accent: 'red' },
+  { id: 'center-shield-n', minX: -4.5, maxX: 4.5, minY: 2.0, maxY: 3.3, minZ: -7.2, maxZ: -6.5, kind: 'glass', accent: 'blue' },
+  { id: 'center-shield-s', minX: -4.5, maxX: 4.5, minY: 2.0, maxY: 3.3, minZ: 6.5, maxZ: 7.2, kind: 'glass', accent: 'red' },
 
-  // Four Towering Neon Arena Pillars
-  { id: 'pillar-nw', minX: -15.5, maxX: -13.0, minY: 0, maxY: 11, minZ: -14.0, maxZ: -11.5, kind: 'pillar', accent: 'blue' },
-  { id: 'pillar-ne', minX: 13.0, maxX: 15.5, minY: 0, maxY: 11, minZ: -14.0, maxZ: -11.5, kind: 'pillar', accent: 'blue' },
-  { id: 'pillar-sw', minX: -15.5, maxX: -13.0, minY: 0, maxY: 11, minZ: 11.5, maxZ: 14.0, kind: 'pillar', accent: 'red' },
-  { id: 'pillar-se', minX: 13.0, maxX: 15.5, minY: 0, maxY: 11, minZ: 11.5, maxZ: 14.0, kind: 'pillar', accent: 'red' },
+  // Four Towering Neon Arena Pillars (Wide Outer Ring)
+  { id: 'pillar-nw', minX: -25.0, maxX: -22.0, minY: 0, maxY: 13, minZ: -24.0, maxZ: -21.0, kind: 'pillar', accent: 'blue' },
+  { id: 'pillar-ne', minX: 22.0, maxX: 25.0, minY: 0, maxY: 13, minZ: -24.0, maxZ: -21.0, kind: 'pillar', accent: 'blue' },
+  { id: 'pillar-sw', minX: -25.0, maxX: -22.0, minY: 0, maxY: 13, minZ: 21.0, maxZ: 24.0, kind: 'pillar', accent: 'red' },
+  { id: 'pillar-se', minX: 22.0, maxX: 25.0, minY: 0, maxY: 13, minZ: 21.0, maxZ: 24.0, kind: 'pillar', accent: 'red' },
+
+  // Mid-Lane Tactical Bunkers & Cover Crates
+  { id: 'mid-bunker-nw', minX: -19.0, maxX: -15.0, minY: 0, maxY: 2.2, minZ: -14.0, maxZ: -11.5, kind: 'cover', accent: 'blue' },
+  { id: 'mid-bunker-ne', minX: 15.0, maxX: 19.0, minY: 0, maxY: 2.2, minZ: -14.0, maxZ: -11.5, kind: 'cover', accent: 'blue' },
+  { id: 'mid-bunker-sw', minX: -19.0, maxX: -15.0, minY: 0, maxY: 2.2, minZ: 11.5, maxZ: 14.0, kind: 'cover', accent: 'red' },
+  { id: 'mid-bunker-se', minX: 15.0, maxX: 19.0, minY: 0, maxY: 2.2, minZ: 11.5, maxZ: 14.0, kind: 'cover', accent: 'red' },
 
   // Blue Side Base Cover & Energy Glass Walls
-  { id: 'blue-bunker-c', minX: -4.5, maxX: 4.5, minY: 0, maxY: 2.3, minZ: -18.5, maxZ: -17.3, kind: 'cover', accent: 'blue' },
-  { id: 'blue-glass-l', minX: -13.0, maxX: -7.5, minY: 0, maxY: 3.2, minZ: -21.5, maxZ: -20.8, kind: 'glass', accent: 'blue' },
-  { id: 'blue-glass-r', minX: 7.5, maxX: 13.0, minY: 0, maxY: 3.2, minZ: -21.5, maxZ: -20.8, kind: 'glass', accent: 'blue' },
-  { id: 'blue-crate-l', minX: -20.5, maxX: -17.5, minY: 0, maxY: 2.0, minZ: -10.0, maxZ: -7.5, kind: 'cover', accent: 'blue' },
-  { id: 'blue-crate-r', minX: 17.5, maxX: 20.5, minY: 0, maxY: 2.0, minZ: -10.0, maxZ: -7.5, kind: 'cover', accent: 'blue' },
+  { id: 'blue-bunker-c', minX: -6.5, maxX: 6.5, minY: 0, maxY: 2.4, minZ: -31.5, maxZ: -30.0, kind: 'cover', accent: 'blue' },
+  { id: 'blue-glass-l', minX: -22.0, maxX: -13.0, minY: 0, maxY: 3.2, minZ: -38.5, maxZ: -37.6, kind: 'glass', accent: 'blue' },
+  { id: 'blue-glass-r', minX: 13.0, maxX: 22.0, minY: 0, maxY: 3.2, minZ: -38.5, maxZ: -37.6, kind: 'glass', accent: 'blue' },
+  { id: 'blue-crate-l', minX: -36.0, maxX: -32.0, minY: 0, maxY: 2.2, minZ: -20.0, maxZ: -17.0, kind: 'cover', accent: 'blue' },
+  { id: 'blue-crate-r', minX: 32.0, maxX: 36.0, minY: 0, maxY: 2.2, minZ: -20.0, maxZ: -17.0, kind: 'cover', accent: 'blue' },
 
   // Red Side Base Cover & Energy Glass Walls (mirror of Blue)
-  { id: 'red-bunker-c', minX: -4.5, maxX: 4.5, minY: 0, maxY: 2.3, minZ: 17.3, maxZ: 18.5, kind: 'cover', accent: 'red' },
-  { id: 'red-glass-l', minX: -13.0, maxX: -7.5, minY: 0, maxY: 3.2, minZ: 20.8, maxZ: 21.5, kind: 'glass', accent: 'red' },
-  { id: 'red-glass-r', minX: 7.5, maxX: 13.0, minY: 0, maxY: 3.2, minZ: 20.8, maxZ: 21.5, kind: 'glass', accent: 'red' },
-  { id: 'red-crate-l', minX: -20.5, maxX: -17.5, minY: 0, maxY: 2.0, minZ: 7.5, maxZ: 10.0, kind: 'cover', accent: 'red' },
-  { id: 'red-crate-r', minX: 17.5, maxX: 20.5, minY: 0, maxY: 2.0, minZ: 7.5, maxZ: 10.0, kind: 'cover', accent: 'red' },
+  { id: 'red-bunker-c', minX: -6.5, maxX: 6.5, minY: 0, maxY: 2.4, minZ: 30.0, maxZ: 31.5, kind: 'cover', accent: 'red' },
+  { id: 'red-glass-l', minX: -22.0, maxX: -13.0, minY: 0, maxY: 3.2, minZ: 37.6, maxZ: 38.5, kind: 'glass', accent: 'red' },
+  { id: 'red-glass-r', minX: 13.0, maxX: 22.0, minY: 0, maxY: 3.2, minZ: 37.6, maxZ: 38.5, kind: 'glass', accent: 'red' },
+  { id: 'red-crate-l', minX: -36.0, maxX: -32.0, minY: 0, maxY: 2.2, minZ: 17.0, maxZ: 20.0, kind: 'cover', accent: 'red' },
+  { id: 'red-crate-r', minX: 32.0, maxX: 36.0, minY: 0, maxY: 2.2, minZ: 17.0, maxZ: 20.0, kind: 'cover', accent: 'red' },
 
   // Side Balcony Overlooks (West & East Mid-Lane)
-  { id: 'side-deck-w', minX: -25.5, maxX: -19.5, minY: 0, maxY: 3.2, minZ: -4.5, maxZ: 4.5, kind: 'platform', accent: 'neutral' },
-  { id: 'side-deck-e', minX: 19.5, maxX: 25.5, minY: 0, maxY: 3.2, minZ: -4.5, maxZ: 4.5, kind: 'platform', accent: 'neutral' },
+  { id: 'side-deck-w', minX: -45.5, maxX: -36.5, minY: 0, maxY: 3.2, minZ: -8.0, maxZ: 8.0, kind: 'platform', accent: 'neutral' },
+  { id: 'side-deck-e', minX: 36.5, maxX: 45.5, minY: 0, maxY: 3.2, minZ: -8.0, maxZ: 8.0, kind: 'platform', accent: 'neutral' },
 ]
 
 export const JUMP_PADS: JumpPad[] = [
-  { id: 'jp-w-n', x: -16.8, y: 0.08, z: -4.2, radius: 1.5, boostY: 12.2, accent: 'blue' },
-  { id: 'jp-w-s', x: -16.8, y: 0.08, z: 4.2, radius: 1.5, boostY: 12.2, accent: 'red' },
-  { id: 'jp-e-n', x: 16.8, y: 0.08, z: -4.2, radius: 1.5, boostY: 12.2, accent: 'blue' },
-  { id: 'jp-e-s', x: 16.8, y: 0.08, z: 4.2, radius: 1.5, boostY: 12.2, accent: 'red' },
+  { id: 'jp-w-n', x: -32.5, y: 0.08, z: -6.5, radius: 1.7, boostY: 12.6, accent: 'blue' },
+  { id: 'jp-w-s', x: -32.5, y: 0.08, z: 6.5, radius: 1.7, boostY: 12.6, accent: 'red' },
+  { id: 'jp-e-n', x: 32.5, y: 0.08, z: -6.5, radius: 1.7, boostY: 12.6, accent: 'blue' },
+  { id: 'jp-e-s', x: 32.5, y: 0.08, z: 6.5, radius: 1.7, boostY: 12.6, accent: 'red' },
+  { id: 'jp-b-c', x: 0, y: 0.08, z: -36.0, radius: 1.8, boostY: 13.0, accent: 'blue' },
+  { id: 'jp-r-c', x: 0, y: 0.08, z: 36.0, radius: 1.8, boostY: 13.0, accent: 'red' },
 ]
 
 export const TEAM_SPAWNS: Record<Team, Array<{ position: Vec3; yaw: number }>> = {
   blue: [
-    { position: { x: -8, y: 0, z: -27 }, yaw: Math.PI },
-    { position: { x: 0, y: 0, z: -28 }, yaw: Math.PI },
-    { position: { x: 8, y: 0, z: -27 }, yaw: Math.PI },
-    { position: { x: -16, y: 0, z: -26 }, yaw: Math.PI },
+    { position: { x: -12, y: 0, z: -47 }, yaw: Math.PI },
+    { position: { x: 0, y: 0, z: -49 }, yaw: Math.PI },
+    { position: { x: 12, y: 0, z: -47 }, yaw: Math.PI },
+    { position: { x: -24, y: 0, z: -45 }, yaw: Math.PI },
   ],
   red: [
-    { position: { x: -8, y: 0, z: 27 }, yaw: 0 },
-    { position: { x: 0, y: 0, z: 28 }, yaw: 0 },
-    { position: { x: 8, y: 0, z: 27 }, yaw: 0 },
-    { position: { x: 16, y: 0, z: 26 }, yaw: 0 },
+    { position: { x: -12, y: 0, z: 47 }, yaw: 0 },
+    { position: { x: 0, y: 0, z: 49 }, yaw: 0 },
+    { position: { x: 12, y: 0, z: 47 }, yaw: 0 },
+    { position: { x: 24, y: 0, z: 45 }, yaw: 0 },
   ],
 }
 
