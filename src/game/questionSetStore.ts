@@ -80,3 +80,62 @@ export function createBlankCustomQuestion(index: number): MathQuestion {
     sourceRef: 'Custom Question',
   }
 }
+
+/**
+ * Reads an uploaded image file (PNG/JPG/WebP/GIF) and compresses/resizes it to fit
+ * safely inside localStorage & multiplayer room payloads (<= 960x540, <= ~240KB).
+ */
+export function compressImageFileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (!/^image\/(png|jpeg|jpg|webp|gif)$/i.test(file.type)) {
+      reject(new Error('รองรับเฉพาะไฟล์รูปภาพ PNG, JPG, WebP หรือ GIF'))
+      return
+    }
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('อ่านไฟล์รูปภาพไม่สำเร็จ'))
+    reader.onload = () => {
+      const rawDataUrl = String(reader.result ?? '')
+      if (!rawDataUrl) {
+        reject(new Error('ไฟล์รูปภาพว่างเปล่า'))
+        return
+      }
+      // If small enough already (or GIF), keep directly when under 280KB
+      if ((file.type === 'image/gif' || rawDataUrl.length <= 240_000) && rawDataUrl.length <= 310_000) {
+        resolve(rawDataUrl)
+        return
+      }
+      const img = new Image()
+      img.onerror = () => reject(new Error('ไม่สามารถถอดรหัสรูปภาพได้'))
+      img.onload = () => {
+        const maxW = 960
+        const maxH = 540
+        const scale = Math.min(1, maxW / img.width, maxH / img.height)
+        const w = Math.max(1, Math.round(img.width * scale))
+        const h = Math.max(1, Math.round(img.height * scale))
+        const canvas = document.createElement('canvas')
+        canvas.width = w
+        canvas.height = h
+        const ctx = canvas.getContext('2d')
+        if (!ctx) {
+          resolve(rawDataUrl.slice(0, 310_000))
+          return
+        }
+        ctx.drawImage(img, 0, 0, w, h)
+        let out = canvas.toDataURL('image/webp', 0.82)
+        if (!out.startsWith('data:image/webp') || out.length > 310_000) {
+          out = canvas.toDataURL('image/jpeg', 0.8)
+        }
+        if (out.length > 310_000) {
+          out = canvas.toDataURL('image/jpeg', 0.62)
+        }
+        if (out.length > 315_000) {
+          reject(new Error('รูปภาพมีขนาดใหญ่เกินไป กรุณาย่อขนาดก่อนอัปโหลด'))
+          return
+        }
+        resolve(out)
+      }
+      img.src = rawDataUrl
+    }
+    reader.readAsDataURL(file)
+  })
+}

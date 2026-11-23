@@ -145,4 +145,48 @@ describe('Question Sets & Custom Room Question Selection', () => {
       expect(ans.result.explanation).toContain('30')
     }
   })
+
+  it('preserves safe PNG/JPEG base64 imageDataUrl and strips unsafe SVG/URL image payloads', () => {
+    const safePng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
+    const unsafeSvg = 'data:image/svg+xml;base64,PHN2Zz48c2NyaXB0PmFsZXJ0KDEpPC9zY3JpcHQ+PC9zdmc+'
+
+    const res = sanitizeQuestionSet({
+      id: 'custom-img-test',
+      name: 'ชุดโจทย์รูปภาพ',
+      description: 'ทดสอบอัปโหลดรูป',
+      questions: [
+        {
+          id: 'IMG-1',
+          difficulty: 'easy',
+          topic: 'เรขาคณิต',
+          formulaHint: '',
+          prompt: '',
+          imageDataUrl: safePng,
+          choices: ['10', '20', '30', '40'],
+          correctIndex: 1,
+          explanation: '20',
+          sourceRef: 'Custom',
+        },
+        {
+          id: 'IMG-2',
+          difficulty: 'easy',
+          topic: 'XSS',
+          formulaHint: '',
+          prompt: 'คำถามปลอดภัย',
+          imageDataUrl: unsafeSvg,
+          choices: ['1', '2', '3', '4'],
+          correctIndex: 0,
+          explanation: '1',
+          sourceRef: 'Custom',
+        },
+      ],
+    })
+
+    expect(res.ok).toBe(true)
+    if (res.ok) {
+      expect(res.set.questions[0].imageDataUrl).toBe(safePng)
+      expect(res.set.questions[0].prompt).toContain('รูปภาพ')
+      expect(res.set.questions[1].imageDataUrl).toBeUndefined()
+    }
+  })
 })

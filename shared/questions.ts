@@ -1005,6 +1005,7 @@ export function toPublicQuestion(q: MathQuestion): PublicMathQuestion {
     topic: q.topic,
     formulaHint: q.formulaHint,
     prompt: q.prompt,
+    ...(q.imageDataUrl ? { imageDataUrl: q.imageDataUrl } : {}),
     choices: q.choices,
   }
 }

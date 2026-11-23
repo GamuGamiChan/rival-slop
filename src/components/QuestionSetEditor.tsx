@@ -4,6 +4,7 @@ import {
   Copy,
   Download,
   FolderPlus,
+  ImagePlus,
   Plus,
   Save,
   Trash2,
@@ -14,6 +15,7 @@ import { useState } from 'react'
 import { BUILTIN_QUESTION_SETS, sanitizeQuestionSet } from '../../shared/questionSets.ts'
 import type { Difficulty, MathQuestion, QuestionSet } from '../../shared/types.ts'
 import {
+  compressImageFileToDataUrl,
   createBlankCustomQuestion,
   loadCustomQuestionSets,
   loadSelectedQuestionSetId,
@@ -133,6 +135,40 @@ function QuestionSetEditorInner() {
     const nextQ = createBlankCustomQuestion(draft.questions.length + 1)
     setDraft({ ...draft, questions: [...draft.questions, nextQ] })
     setFeedback(null)
+  }
+
+  const handleUploadImageForQuestion = async (qIndex: number, file: File | undefined) => {
+    if (!file || !draft || isReadOnly) return
+    try {
+      const dataUrl = await compressImageFileToDataUrl(file)
+      updateQuestion(qIndex, { imageDataUrl: dataUrl })
+      setFeedback({ ok: true, text: `อัปโหลดรูปประกอบโจทย์ข้อที่ ${qIndex + 1} เรียบร้อย` })
+    } catch (err) {
+      setFeedback({ ok: false, text: err instanceof Error ? err.message : 'อัปโหลดรูปไม่สำเร็จ' })
+    }
+  }
+
+  const handleAddQuestionFromImage = async (file: File | undefined) => {
+    if (!file || !draft || isReadOnly) return
+    if (draft.questions.length >= 150) {
+      setFeedback({ ok: false, text: 'จำกัดสูงสุด 150 ข้อต่อ 1 ชุดโจทย์' })
+      return
+    }
+    try {
+      const dataUrl = await compressImageFileToDataUrl(file)
+      const nextQ = {
+        ...createBlankCustomQuestion(draft.questions.length + 1),
+        prompt: 'ดูโจทย์จากรูปภาพด้านล่างแล้วเลือกคำตอบที่ถูกต้อง',
+        imageDataUrl: dataUrl,
+        choices: ['A', 'B', 'C', 'D'] as [string, string, string, string],
+        correctIndex: 0 as const,
+        explanation: 'เฉลยตามรูปภาพโจทย์ที่อัปโหลด',
+      }
+      setDraft({ ...draft, questions: [...draft.questions, nextQ] })
+      setFeedback({ ok: true, text: 'สร้างโจทย์ข้อใหม่จากรูปภาพแล้ว กรุณาระบุตัวเลือกและคำตอบที่ถูกต้อง' })
+    } catch (err) {
+      setFeedback({ ok: false, text: err instanceof Error ? err.message : 'อัปโหลดรูปไม่สำเร็จ' })
+    }
   }
 
   const handleRemoveQuestion = (index: number) => {
@@ -464,23 +500,63 @@ function QuestionSetEditorInner() {
                         )}
                       </div>
 
-                      {/* Prompt */}
-                      <div>
-                        <label
-                          htmlFor={`input-q-prompt-${qIdx}`}
-                          className="block text-[11px] font-thai text-slate-400 mb-1"
-                        >
-                          คำถาม / โจทย์คณิตศาสตร์
-                        </label>
+                      {/* Prompt + Optional Image Upload */}
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <label
+                            htmlFor={`input-q-prompt-${qIdx}`}
+                            className="block text-[11px] font-thai text-slate-400"
+                          >
+                            คำถาม / โจทย์คณิตศาสตร์ (พิมพ์ข้อความ หรืออัปโหลดรูปภาพโจทย์)
+                          </label>
+                          {!isReadOnly && (
+                            <div className="flex items-center gap-1.5">
+                              <label className="px-2.5 py-1 bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-400/60 text-cyan-200 text-[11px] font-thai font-bold flex items-center gap-1 cursor-pointer">
+                                <ImagePlus className="w-3.5 h-3.5" />
+                                <span>{q.imageDataUrl ? 'เปลี่ยนรูปโจทย์' : 'อัปโหลดรูปโจทย์'}</span>
+                                <input
+                                  id={`input-q-image-${qIdx}`}
+                                  type="file"
+                                  accept="image/png,image/jpeg,image/webp,image/gif"
+                                  className="hidden"
+                                  onChange={(e) => {
+                                    void handleUploadImageForQuestion(qIdx, e.target.files?.[0])
+                                    e.target.value = ''
+                                  }}
+                                />
+                              </label>
+                              {q.imageDataUrl && (
+                                <button
+                                  id={`btn-remove-q-image-${qIdx}`}
+                                  type="button"
+                                  onClick={() => updateQuestion(qIdx, { imageDataUrl: undefined })}
+                                  className="px-2 py-1 bg-rose-950/60 hover:bg-rose-900 border border-rose-500/40 text-rose-300 text-[11px] font-thai cursor-pointer"
+                                >
+                                  ลบรูป
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
                         <textarea
                           id={`input-q-prompt-${qIdx}`}
                           rows={2}
                           disabled={isReadOnly}
                           value={q.prompt}
                           onChange={(e) => updateQuestion(qIdx, { prompt: e.target.value })}
-                          placeholder="พิมพ์โจทย์ที่นี่..."
+                          placeholder="พิมพ์โจทย์ที่นี่ (หรือเว้นสั้นๆ แล้วอัปโหลดรูปโจทย์)..."
                           className="w-full px-3 py-2 bg-slate-900/90 border border-slate-700 focus:border-cyan-400 focus:outline-none text-white font-thai text-sm disabled:opacity-65"
                         />
+                        {q.imageDataUrl && (
+                          <div className="p-2 bg-slate-900/90 border border-cyan-500/35 flex justify-center">
+                            <img
+                              id={`preview-q-image-${qIdx}`}
+                              src={q.imageDataUrl}
+                              alt={`ภาพโจทย์ข้อที่ ${qIdx + 1}`}
+                              className="max-h-44 w-auto object-contain rounded"
+                            />
+                          </div>
+                        )}
                       </div>
 
                       {/* 4 Choices + Correct Answer Radio */}
@@ -570,14 +646,30 @@ function QuestionSetEditorInner() {
                 <div className="px-4 py-3 border-t border-slate-800 bg-slate-950/80 flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     {!isReadOnly && (
-                      <button
-                        id="btn-add-question"
-                        type="button"
-                        onClick={handleAddQuestion}
-                        className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 border border-cyan-500/50 text-cyan-200 font-thai font-bold text-xs flex items-center gap-1.5 cursor-pointer"
-                      >
-                        <Plus className="w-4 h-4" /> เพิ่มโจทย์ใหม่
-                      </button>
+                      <>
+                        <button
+                          id="btn-add-question"
+                          type="button"
+                          onClick={handleAddQuestion}
+                          className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 border border-cyan-500/50 text-cyan-200 font-thai font-bold text-xs flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Plus className="w-4 h-4" /> เพิ่มโจทย์ใหม่
+                        </button>
+                        <label className="px-3.5 py-2 bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-400/70 text-cyan-100 font-thai font-bold text-xs flex items-center gap-1.5 cursor-pointer">
+                          <ImagePlus className="w-4 h-4" />
+                          <span>สร้างข้อใหม่จากรูปภาพ</span>
+                          <input
+                            id="input-add-question-from-image"
+                            type="file"
+                            accept="image/png,image/jpeg,image/webp,image/gif"
+                            className="hidden"
+                            onChange={(e) => {
+                              void handleAddQuestionFromImage(e.target.files?.[0])
+                              e.target.value = ''
+                            }}
+                          />
+                        </label>
+                      </>
                     )}
                     <button
                       type="button"

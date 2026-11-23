@@ -389,8 +389,8 @@ function handleClientMessage(session: ClientSession, msg: ClientMessage): void {
   }
 }
 
-/** Upper bound for a single client message (covers a 150-question custom set). */
-const MAX_CLIENT_PAYLOAD_CHARS = 512 * 1024
+/** Upper bound for a single client message (covers a custom set with uploaded question images). */
+const MAX_CLIENT_PAYLOAD_CHARS = 4 * 1024 * 1024
 
 function readJsonBody(req: http.IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {

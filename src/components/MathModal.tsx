@@ -574,9 +574,19 @@ export function MathModal() {
             {/* Question prompt ALWAYS stays visible during selection AND feedback */}
             <div
               id="math-question-prompt"
-              className="p-4 bg-slate-950/90 border border-slate-800 text-white font-thai text-base sm:text-lg leading-relaxed font-medium"
+              className="p-4 bg-slate-950/90 border border-slate-800 text-white font-thai text-base sm:text-lg leading-relaxed font-medium space-y-3"
             >
-              {visibleQuestion.prompt}
+              <div>{visibleQuestion.prompt}</div>
+              {visibleQuestion.imageDataUrl && (
+                <div className="flex justify-center">
+                  <img
+                    id="math-question-image"
+                    src={visibleQuestion.imageDataUrl}
+                    alt="ภาพประกอบโจทย์คณิตศาสตร์"
+                    className="max-h-60 w-auto rounded border border-cyan-500/40 bg-slate-900/90 object-contain"
+                  />
+                </div>
+              )}
             </div>
 
             {/* Active Helper Clues */}

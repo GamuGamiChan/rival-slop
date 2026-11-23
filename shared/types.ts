@@ -51,6 +51,7 @@ export interface MathQuestion {
   formulaHint: string
   stepHint?: string
   prompt: string
+  imageDataUrl?: string
   choices: [string, string, string, string]
   correctIndex: 0 | 1 | 2 | 3
   explanation: string
@@ -86,6 +87,7 @@ export interface PublicMathQuestion {
   topic: string
   formulaHint: string
   prompt: string
+  imageDataUrl?: string
   choices: [string, string, string, string]
 }
 

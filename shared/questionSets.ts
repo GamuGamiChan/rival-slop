@@ -75,11 +75,22 @@ export function sanitizeQuestionSet(
   const seenIds = new Set<string>()
   const maxQuestions = 150
 
+  const IMAGE_DATA_URL_RE = /^data:image\/(png|jpeg|jpg|webp|gif);base64,[A-Za-z0-9+/=]+$/
+  const MAX_IMAGE_DATA_URL_LEN = 320_000
+
   for (let i = 0; i < Math.min(raw.questions.length, maxQuestions); i++) {
     const q = raw.questions[i]
     if (!q || typeof q !== 'object') continue
-    const prompt = String(q.prompt ?? '').trim().slice(0, 600)
-    if (prompt.length < 3) continue
+    const rawImg = typeof q.imageDataUrl === 'string' ? q.imageDataUrl.trim() : ''
+    const imageDataUrl =
+      rawImg.length > 0 && rawImg.length <= MAX_IMAGE_DATA_URL_LEN && IMAGE_DATA_URL_RE.test(rawImg)
+        ? rawImg
+        : undefined
+    let prompt = String(q.prompt ?? '').trim().slice(0, 600)
+    if (prompt.length < 3) {
+      if (!imageDataUrl) continue
+      prompt = 'ดูโจทย์จากรูปภาพด้านล่างแล้วเลือกคำตอบที่ถูกต้อง'
+    }
     if (!Array.isArray(q.choices) || q.choices.length !== 4) continue
     const choices = q.choices.map((c, idx) => String(c ?? '').trim().slice(0, 160) || `ตัวเลือก ${idx + 1}`) as [
       string,
@@ -104,6 +115,7 @@ export function sanitizeQuestionSet(
       formulaHint: String(q.formulaHint ?? '').trim().slice(0, 300) || 'วิเคราะห์เงื่อนไขจากโจทย์ทีละขั้น',
       stepHint: String(q.stepHint ?? '').trim().slice(0, 400) || undefined,
       prompt,
+      ...(imageDataUrl ? { imageDataUrl } : {}),
       choices,
       correctIndex,
       explanation:
