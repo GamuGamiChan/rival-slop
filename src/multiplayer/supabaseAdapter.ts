@@ -272,6 +272,7 @@ export class SupabaseAdapter {
         ammo: existing?.ammo ?? spec?.magSize ?? 0,
         maxAmmo: spec?.magSize ?? 0,
         reloadingUntil: existing?.reloadingUntil ?? null,
+        meleeTier: 1,
         skillQReadyAt: existing?.skillQReadyAt ?? 0,
         skillCReadyAt: existing?.skillCReadyAt ?? 0,
         ultPoints: existing?.ultPoints ?? 0,
@@ -331,6 +332,7 @@ export class SupabaseAdapter {
       scoreboard,
       killFeed: useGameStore.getState().recentKills,
       worldEffects: [],
+      crates: [],
       summary: effectivePhase === 'finished' ? this.buildSummary(r.room_code, scoreboard) : null,
     }
   }

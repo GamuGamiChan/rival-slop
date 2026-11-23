@@ -16,7 +16,7 @@ import { useEffect, useRef, useState } from 'react'
 import { AGENT_IDS, AGENTS } from '../../shared/agents.ts'
 import { MobileControlsOverlay } from './MobileControlsOverlay.tsx'
 import type { SkillSlot } from '../../shared/types.ts'
-import { WEAPON_IDS, WEAPONS } from '../../shared/weapons.ts'
+import { getMeleeSpecForTier, WEAPON_IDS, WEAPONS } from '../../shared/weapons.ts'
 import { soundEngine } from '../game/sound.ts'
 import { multiplayerClient } from '../multiplayer/client.ts'
 import { selectMyPlayer, useGameStore } from '../store/useGameStore.ts'
@@ -933,14 +933,14 @@ export function GameHUD() {
                     NO WEAPON EQUIPPED
                   </div>
                   <div className="text-[10px] font-display tracking-widest text-amber-300 uppercase">
-                    CYBER FISTS • MELEE (DMG 35 / HS 55)
+                    {getMeleeSpecForTier(me.meleeTier).name.toUpperCase()} • MELEE (DMG {getMeleeSpecForTier(me.meleeTier).damage} / HS {getMeleeSpecForTier(me.meleeTier).headshotDamage})
                   </div>
                 </div>
                 <Crosshair className="w-5 h-5 text-rose-400" />
               </div>
               <div className="flex items-baseline justify-between pt-0.5">
                 <span className="font-display text-xl font-black text-rose-200" id="hud-ammo-value">
-                  ∞ FISTS
+                  ∞ {me.meleeTier >= 3 ? 'KATANA LV.3' : me.meleeTier === 2 ? 'BLADE LV.2' : 'FISTS'}
                 </span>
                 <span className="font-thai text-[11px] text-rose-200">
                   คลิกซ้ายต่อยระยะ 3.4m

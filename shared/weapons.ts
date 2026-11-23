@@ -183,6 +183,32 @@ export const UNARMED_MELEE_SPEC = {
   tagline: 'หมัดไซเบอร์ระยะประชิด (3.4m) คลิกซ้ายต่อยศัตรูได้ทันทีแม้มือเปล่า!',
 } as const
 
+export function getMeleeSpecForTier(tier: number) {
+  if (tier >= 3) {
+    return {
+      ...UNARMED_MELEE_SPEC,
+      name: 'Quantum Katana Lv.3',
+      damage: 75,
+      headshotDamage: 115,
+      fireRateMs: 270,
+      range: 4.5,
+      badge: 'MELEE LV.3',
+    }
+  }
+  if (tier === 2) {
+    return {
+      ...UNARMED_MELEE_SPEC,
+      name: 'Cyber Blade Lv.2',
+      damage: 55,
+      headshotDamage: 85,
+      fireRateMs: 340,
+      range: 4.0,
+      badge: 'MELEE LV.2',
+    }
+  }
+  return UNARMED_MELEE_SPEC
+}
+
 /**
  * Authoritative Math Challenge Weapon Reward Pool — all 8 diverse sci-fi weapons:
  * Pistol, Revolver, SMG, Rifle, Burst, Shotgun, LMG, Sniper.

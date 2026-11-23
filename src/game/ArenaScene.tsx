@@ -612,6 +612,69 @@ function JumpPadsVisual() {
   )
 }
 
+/** Animated 3D Arena Supply Crates (Weapon Swap, Math Helper +1, Knife/Fist Upgrade). */
+function ArenaPickupCrates() {
+  const crates = useGameStore((s) => s.room?.crates)
+  const meshesRef = useRef<Array<THREE.Group | null>>([])
+
+  useFrame(({ clock }) => {
+    const t = clock.elapsedTime
+    meshesRef.current.forEach((grp, idx) => {
+      if (!grp) return
+      grp.rotation.y = t * 1.45 + idx * 0.9
+      grp.position.y = 0.85 + Math.sin(t * 2.6 + idx) * 0.16
+    })
+  })
+
+  if (!crates || crates.length === 0) return null
+
+  return (
+    <group>
+      {crates.map((crate, idx) => {
+        if (!crate.active) return null
+        const color =
+          crate.kind === 'weapon_swap'
+            ? '#38bdf8'
+            : crate.kind === 'math_helper'
+              ? '#fbbf24'
+              : '#fb7185'
+        return (
+          <group key={crate.id} position={[crate.position.x, crate.position.y, crate.position.z]}>
+            {/* Glowing Floor Pad */}
+            <mesh position={[0, 0.04, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+              <ringGeometry args={[0.75, 1.15, 24]} />
+              <meshBasicMaterial color={color} transparent opacity={0.7} side={THREE.DoubleSide} />
+            </mesh>
+            {/* Floating Rotating Supply Crate / Crystal */}
+            <group
+              ref={(el) => {
+                meshesRef.current[idx] = el
+              }}
+              position={[0, 0.85, 0]}
+            >
+              {crate.kind === 'melee_upgrade' ? (
+                <mesh castShadow>
+                  <octahedronGeometry args={[0.48, 0]} />
+                  <meshStandardMaterial color={color} emissive={color} emissiveIntensity={1.6} metalness={0.4} roughness={0.2} />
+                </mesh>
+              ) : (
+                <mesh castShadow>
+                  <boxGeometry args={[0.74, 0.74, 0.74]} />
+                  <meshStandardMaterial color="#1e293b" emissive={color} emissiveIntensity={0.65} metalness={0.35} roughness={0.25} />
+                </mesh>
+              )}
+              <mesh rotation={[Math.PI / 4, Math.PI / 4, 0]}>
+                <torusGeometry args={[0.64, 0.035, 8, 24]} />
+                <meshBasicMaterial color={color} />
+              </mesh>
+            </group>
+          </group>
+        )
+      })}
+    </group>
+  )
+}
+
 /** Stadium Overhead Structural Steel Trusses & Skylight Ceiling Panels. */
 function StadiumRoofTrusses() {
   const archPositions = [-40, -20, 0, 20, 40]
@@ -732,6 +795,7 @@ function ArenaWorld() {
 
       <StadiumRoofTrusses />
       <TeamBaseLandmarks />
+      <ArenaPickupCrates />
       <CenterMathCoreReactor />
       <JumpPadsVisual />
       <Suspense fallback={null}>

@@ -167,7 +167,10 @@ export function MainMenu() {
             </div>
             <h1 className="font-display text-5xl sm:text-6xl font-black tracking-tight text-white leading-[0.95] drop-shadow-[0_6px_28px_rgba(0,229,255,0.28)]">
               MATH <span className="text-cyan-400">RIVALS</span>{' '}
-              <span className="text-rose-500">3D</span>
+              <span className="text-rose-500">3D</span>{' '}
+              <span className="inline-block align-middle text-xs font-display font-black tracking-widest px-2 py-0.5 bg-cyan-500/20 border border-cyan-400/60 text-cyan-300">
+                v2.0
+              </span>
             </h1>
             <p className="font-thai text-slate-300 text-sm sm:text-base max-w-xl leading-relaxed">
               สู้กันครบ <strong className="text-cyan-300">10 ตา (10 Rounds)</strong> เมื่อจบแต่ละรอบจะเปิด{' '}

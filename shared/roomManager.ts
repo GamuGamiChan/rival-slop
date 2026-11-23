@@ -34,6 +34,7 @@ function timingSafeStringEqual(a: string, b: string): boolean {
 
 import { AGENT_IDS, AGENTS, ULT_MAX_POINTS } from './agents.ts'
 import {
+  ARENA_CRATE_SPAWNS,
   clampPositionToArena,
   getSpawnForTeam,
   normalizeVec3,
@@ -58,6 +59,7 @@ import {
   type MathHelperType,
   type MatchPhase,
   type MatchSummary,
+  type PickupCrateState,
   type PlayerPublicState,
   type PublicMathQuestion,
   type QuestionSet,
@@ -72,7 +74,7 @@ import {
   type WeaponId,
   type WorldEffect,
 } from './types.ts'
-import { rollRandomWeapon, UNARMED_MELEE_SPEC, WEAPON_IDS, WEAPONS } from './weapons.ts'
+import { getMeleeSpecForTier, rollRandomWeapon, WEAPON_IDS, WEAPONS } from './weapons.ts'
 
 export interface InternalPlayer extends PlayerPublicState {
   sessionToken: string
@@ -105,6 +107,7 @@ export interface InternalRoom {
   players: Map<string, InternalPlayer>
   killFeed: KillFeedItem[]
   worldEffects: WorldEffect[]
+  crates: PickupCrateState[]
   summary: MatchSummary | null
   spawnCounter: { blue: number; red: number }
 }
@@ -336,6 +339,7 @@ export class RoomManager {
       ammo: WEAPONS.pistol.magSize,
       maxAmmo: WEAPONS.pistol.magSize,
       reloadingUntil: null,
+      meleeTier: 1,
       skillQReadyAt: 0,
       skillCReadyAt: 0,
       ultPoints: 0,
@@ -380,6 +384,7 @@ export class RoomManager {
       players: new Map([[playerId, host]]),
       killFeed: [],
       worldEffects: [],
+      crates: ARENA_CRATE_SPAWNS.map((c) => ({ ...c, position: { ...c.position }, active: true, respawnAt: null })),
       summary: null,
       spawnCounter: { blue: 1, red: 0 },
     }
@@ -474,6 +479,7 @@ export class RoomManager {
       ammo: WEAPONS.pistol.magSize,
       maxAmmo: WEAPONS.pistol.magSize,
       reloadingUntil: null,
+      meleeTier: 1,
       skillQReadyAt: 0,
       skillCReadyAt: 0,
       ultPoints: 0,
@@ -694,6 +700,7 @@ export class RoomManager {
     room.matchEndsAt = null
     room.killFeed = []
     room.worldEffects = []
+    room.crates = ARENA_CRATE_SPAWNS.map((c) => ({ ...c, position: { ...c.position }, active: true, respawnAt: null }))
     room.summary = null
     room.spawnCounter = { blue: 0, red: 0 }
 
@@ -1653,8 +1660,9 @@ export class RoomManager {
     const isMelee = shooter.weapon === null
     const weaponIdOrMelee: WeaponId | 'melee' = shooter.weapon ?? 'melee'
     const spec = shooter.weapon ? WEAPONS[shooter.weapon] : null
+    const meleeSpec = getMeleeSpecForTier(shooter.meleeTier)
     const overdriveActive = Boolean(shooter.overdriveUntil && now < shooter.overdriveUntil)
-    const baseFireRateMs = spec ? spec.fireRateMs : UNARMED_MELEE_SPEC.fireRateMs
+    const baseFireRateMs = spec ? spec.fireRateMs : meleeSpec.fireRateMs
     const effectiveFireRateMs = overdriveActive ? Math.floor(baseFireRateMs * 0.65) : baseFireRateMs
     const damageMult = overdriveActive ? 1.25 : 1.0
 
@@ -1693,10 +1701,10 @@ export class RoomManager {
 
     const ammoCost = isMelee || !spec ? 0 : spec.id === 'burst' ? Math.min(shooter.ammo, 3) : 1
     const shotPellets = isMelee || !spec ? 1 : spec.id === 'burst' ? ammoCost : spec.pellets
-    const maxRange = isMelee || !spec ? UNARMED_MELEE_SPEC.range : spec.range
+    const maxRange = isMelee || !spec ? meleeSpec.range : spec.range
     const spreadRad = isMelee || !spec ? 0 : spec.spreadRad
-    const bodyDamage = isMelee || !spec ? UNARMED_MELEE_SPEC.damage : spec.damage
-    const headDamage = isMelee || !spec ? UNARMED_MELEE_SPEC.headshotDamage : spec.headshotDamage
+    const bodyDamage = isMelee || !spec ? meleeSpec.damage : spec.damage
+    const headDamage = isMelee || !spec ? meleeSpec.headshotDamage : spec.headshotDamage
 
     if (!isMelee) {
       shooter.ammo -= ammoCost
@@ -1774,7 +1782,7 @@ export class RoomManager {
         info.headshot,
         weaponIdOrMelee,
         now,
-        isMelee ? UNARMED_MELEE_SPEC.name : undefined,
+        isMelee ? meleeSpec.name : undefined,
       )
       hits.push(record)
       if (record.confirm.killed) scoreboardChanged = true
@@ -2035,6 +2043,43 @@ export class RoomManager {
           }
         }
 
+        for (const crate of room.crates) {
+          if (!crate.active && crate.respawnAt !== null && now >= crate.respawnAt) {
+            crate.active = true
+            crate.respawnAt = null
+            effectsDirty = true
+          }
+          if (
+            crate.active &&
+            (room.roundState === 'COMBAT_ACTIVE' || room.roundState === 'FREE_PLAY')
+          ) {
+            for (const p of room.players.values()) {
+              if (!p.alive || !p.connected) continue
+              const dx = p.position.x - crate.position.x
+              const dz = p.position.z - crate.position.z
+              const dy = p.position.y - crate.position.y
+              if (dx * dx + dz * dz <= 2.1 * 2.1 && Math.abs(dy) <= 2.4) {
+                crate.active = false
+                crate.respawnAt = now + 18_000
+                if (crate.kind === 'weapon_swap') {
+                  const rolled = rollRandomWeapon('medium', p.weapon, this.rngFn)
+                  p.weapon = rolled
+                  p.ammo = WEAPONS[rolled].magSize
+                  p.maxAmmo = WEAPONS[rolled].magSize
+                  p.reloadingUntil = null
+                } else if (crate.kind === 'math_helper') {
+                  p.helperFiftyFiftyLeft = Math.min(9, p.helperFiftyFiftyLeft + 1)
+                  p.helperStepHintLeft = Math.min(9, p.helperStepHintLeft + 1)
+                } else if (crate.kind === 'melee_upgrade') {
+                  p.meleeTier = Math.min(3, p.meleeTier + 1)
+                }
+                effectsDirty = true
+                break
+              }
+            }
+          }
+        }
+
         if (anyRespawn) transitions.push({ roomCode, type: 'RESPAWNED' })
         if (anyReload) transitions.push({ roomCode, type: 'RELOADED' })
         if (effectsDirty) transitions.push({ roomCode, type: 'EFFECTS_UPDATED' })
@@ -2132,6 +2177,7 @@ export class RoomManager {
       ammo: p.ammo,
       maxAmmo: p.maxAmmo,
       reloadingUntil: p.reloadingUntil,
+      meleeTier: p.meleeTier,
       skillQReadyAt: p.skillQReadyAt,
       skillCReadyAt: p.skillCReadyAt,
       ultPoints: p.ultPoints,
@@ -2188,6 +2234,7 @@ export class RoomManager {
         position: { ...e.position },
         box: e.box ? { ...e.box } : undefined,
       })),
+      crates: room.crates.map((c) => ({ ...c, position: { ...c.position } })),
       summary: room.summary,
     }
   }

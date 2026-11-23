@@ -1,4 +1,4 @@
-import type { Team, Vec3 } from './types.ts'
+import type { PickupCrateKind, Team, Vec3 } from './types.ts'
 
 export interface ArenaBox {
   id: string
@@ -119,6 +119,15 @@ export const TEAM_SPAWNS: Record<Team, Array<{ position: Vec3; yaw: number }>> =
     { position: { x: 24, y: 0, z: 45 }, yaw: 0 },
   ],
 }
+
+export const ARENA_CRATE_SPAWNS: Array<{ id: string; kind: PickupCrateKind; position: Vec3 }> = [
+  { id: 'crate-weapon-w', kind: 'weapon_swap', position: { x: -28, y: 0, z: 0 } },
+  { id: 'crate-weapon-e', kind: 'weapon_swap', position: { x: 28, y: 0, z: 0 } },
+  { id: 'crate-helper-n', kind: 'math_helper', position: { x: 0, y: 0, z: -22 } },
+  { id: 'crate-helper-s', kind: 'math_helper', position: { x: 0, y: 0, z: 22 } },
+  { id: 'crate-melee-c', kind: 'melee_upgrade', position: { x: 0, y: 2.0, z: 0 } },
+  { id: 'crate-melee-w', kind: 'melee_upgrade', position: { x: -40, y: 3.2, z: 0 } },
+]
 
 export function getSpawnForTeam(team: Team, slotIndex: number): { position: Vec3; yaw: number } {
   const spawns = TEAM_SPAWNS[team]

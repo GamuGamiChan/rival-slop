@@ -133,6 +133,16 @@ export interface SkillCastPayload {
   timestamp: number
 }
 
+export type PickupCrateKind = 'weapon_swap' | 'math_helper' | 'melee_upgrade'
+
+export interface PickupCrateState {
+  id: string
+  kind: PickupCrateKind
+  position: Vec3
+  active: boolean
+  respawnAt: number | null
+}
+
 export interface PlayerPublicState {
   id: string
   name: string
@@ -152,6 +162,7 @@ export interface PlayerPublicState {
   ammo: number
   maxAmmo: number
   reloadingUntil: number | null
+  meleeTier: number
   // Valorant-style tactical ability cooldowns & buffs
   skillQReadyAt: number
   skillCReadyAt: number
@@ -267,6 +278,7 @@ export interface RoomSnapshot {
   scoreboard: ScoreboardEntry[]
   killFeed: KillFeedItem[]
   worldEffects: WorldEffect[]
+  crates: PickupCrateState[]
   summary: MatchSummary | null
 }
 
