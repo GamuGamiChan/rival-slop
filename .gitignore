@@ -33,3 +33,6 @@ dist-ssr
 coverage
 playwright-report
 test-results
+
+# why public on main
+public/
